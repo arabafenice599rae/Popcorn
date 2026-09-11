@@ -26,7 +26,7 @@ USAGE:
     popcorn keygen --out <FILE>
     popcorn genesis --data <DIR> --node-key <FILE> --foundation-key <FILE> [--drand-round <N>]
     popcorn node    --data <DIR> --node-key <FILE> [--listen <ADDR>]
-    popcorn verify  --data <DIR>
+    popcorn verify  --data <DIR> | --node <URL>
     popcorn account --key <FILE>
     popcorn submit  --key <FILE> --node <URL> <ACTION>
 
@@ -216,14 +216,32 @@ fn node(args: &[String]) -> Result<(), String> {
     })
 }
 
+/// Replay a chain and check every commitment it makes.
+///
+/// Two sources, and the remote one is the point: §10 describes a verifier that downloads
+/// `/chain/export` and re-executes, not one that reads the operator's files. A third party
+/// has no access to the data directory — and does not need it, because transactions travel in
+/// the clear inside blocks.
 fn verify(args: &[String]) -> Result<(), String> {
-    let data = PathBuf::from(required(args, "--data")?);
-    let storage = Storage::open(&chain_path(&data)).map_err(|e| e.to_string())?;
-    let config = storage
-        .genesis_config()
-        .map_err(|e| e.to_string())?
-        .ok_or("chain is not initialized")?;
-    let blocks = storage.blocks_from(0).map_err(|e| e.to_string())?;
+    let (config, blocks) = match (flag(args, "--node"), flag(args, "--data")) {
+        (Some(url), _) => fetch_chain(&url)?,
+        (None, Some(data)) => {
+            let storage = Storage::open(&chain_path(&PathBuf::from(data))).map_err(|e| {
+                format!(
+                    "{e}\n\nA running node holds this database. Either stop it, or verify over \
+                     HTTP with `popcorn verify --node <URL>`, which is what a third party \
+                     would do."
+                )
+            })?;
+            let config = storage
+                .genesis_config()
+                .map_err(|e| e.to_string())?
+                .ok_or("chain is not initialized")?;
+            let blocks = storage.blocks_from(0).map_err(|e| e.to_string())?;
+            (config, blocks)
+        }
+        (None, None) => return Err(format!("pass --node <URL> or --data <DIR>\n\n{USAGE}")),
+    };
 
     let report = verify_chain(&config, &blocks);
     println!("replayed {} blocks", report.blocks_checked);
@@ -377,6 +395,56 @@ fn parse_action(args: &[String]) -> Result<popcorn_core::types::Action, String> 
         }
         other => Err(format!("unknown action `{other}`\n\n{USAGE}")),
     }
+}
+
+/// Download a chain over HTTP and decode it for replay.
+///
+/// The genesis parameters come from `/params`, and they are printed rather than silently
+/// trusted: a verifier should compare them against the published genesis, since a node that
+/// lied about its own node key could otherwise "verify" its own fork.
+fn fetch_chain(url: &str) -> Result<(GenesisConfig, Vec<popcorn_core::types::Block>), String> {
+    use popcorn_node::client;
+    use popcorn_node::encoding::{from_base64, hex32};
+
+    let base = client::Url::parse(url)?;
+    let params = client::get(&base.join("/params"))?;
+
+    let node_pubkey = hex32(params["node_pubkey"].as_str().unwrap_or(""))
+        .ok_or("node pubkey in /params is malformed")?;
+    let foundation_pubkey = hex32(params["foundation_pubkey"].as_str().unwrap_or(""))
+        .ok_or("foundation pubkey in /params is malformed")?;
+    let genesis_drand_round = params["genesis_drand_round"]
+        .as_u64()
+        .ok_or("genesis round in /params is malformed")?;
+
+    println!("verifying against parameters served by {url}:");
+    println!("  node pubkey:         {}", to_hex(&node_pubkey));
+    println!("  foundation pubkey:   {}", to_hex(&foundation_pubkey));
+    println!("  genesis drand round: {genesis_drand_round}");
+    println!("  compare these against the published genesis before trusting the result\n");
+
+    let export = client::get(&base.join("/chain/export?from=0"))?;
+    let encoded = export["blocks"]
+        .as_array()
+        .ok_or("/chain/export did not return a block list")?;
+
+    let mut blocks = Vec::with_capacity(encoded.len());
+    for (index, value) in encoded.iter().enumerate() {
+        let text = value.as_str().ok_or("a block was not a string")?;
+        let bytes = from_base64(text).ok_or(format!("block {index} is not valid base64"))?;
+        blocks.push(
+            borsh::from_slice(&bytes).map_err(|e| format!("block {index} does not decode: {e}"))?,
+        );
+    }
+
+    Ok((
+        GenesisConfig {
+            genesis_drand_round,
+            node_pubkey,
+            foundation_pubkey,
+        },
+        blocks,
+    ))
 }
 
 fn chain_path(data: &Path) -> PathBuf {
