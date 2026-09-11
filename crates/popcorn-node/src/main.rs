@@ -26,7 +26,7 @@ USAGE:
     popcorn keygen --out <FILE>
     popcorn genesis --data <DIR> --node-key <FILE> --foundation-key <FILE> [--drand-round <N>]
     popcorn node    --data <DIR> --node-key <FILE> [--listen <ADDR>]
-    popcorn verify  --data <DIR> | --node <URL>
+    popcorn verify  --data <DIR> | --node <URL> [--audit-collection]
     popcorn account --key <FILE>
     popcorn submit  --key <FILE> --node <URL> <ACTION>
 
@@ -42,6 +42,10 @@ ACTIONS for `submit`:
     remove-liquidity --pair <HEX> --lp <N> [--min0 <N>] [--min1 <N>]
     swap-in          --path <HEX[,HEX...]> --token-in <HEX> --amount-in <N> [--min-out <N>]
     swap-out         --path <HEX[,HEX...]> --token-in <HEX> --amount-out <N> --max-in <N>
+    htlc-lock        --to <ACCOUNT_HEX> --amount <N> --expiry-in <ROUNDS>
+                     (--preimage <HEX32> | --hashlock <HEX32>) [--token <HEX>]
+    htlc-claim       --htlc-id <HEX> --preimage <HEX32>
+    htlc-refund      --htlc-id <HEX>
 
 Identifiers derive from the signer and the nonce, so `create-token` and `create-pair`
 print the id their transaction will produce if it executes.
@@ -255,7 +259,28 @@ fn verify(args: &[String]) -> Result<(), String> {
     let report = verify_chain(&config, &blocks);
     println!("replayed {} blocks", report.blocks_checked);
 
-    if report.is_clean() {
+    // The collection audit is the other half of §10, and it needs what replay does not: the
+    // blobs themselves. Only a node or a mirror can serve those, so it is opt-in and only
+    // over HTTP — state replay stays self-contained, and saying which is which matters.
+    let mut audit_divergences = Vec::new();
+    if args.iter().any(|arg| arg == "--audit-collection") {
+        match flag(args, "--node") {
+            Some(url) => {
+                let (audited, found) = audit_collection_over_http(&url, &blocks)?;
+                println!("audited {audited} manifested blobs against the beacon in each block");
+                audit_divergences = found;
+            }
+            None => {
+                return Err(
+                    "--audit-collection needs --node <URL>: the blobs live on the \
+                            node or a mirror, not in the block stream"
+                        .to_string(),
+                )
+            }
+        }
+    }
+
+    if report.is_clean() && audit_divergences.is_empty() {
         let global = &report.final_state.global;
         println!("every state root, root and monetary invariant matches");
         println!("  emitted:   {}", global.native_emitted);
@@ -265,14 +290,61 @@ fn verify(args: &[String]) -> Result<(), String> {
         println!("  state root: {}", to_hex(&report.final_state.state_root()));
         Ok(())
     } else {
-        for divergence in &report.divergences {
+        for divergence in report.divergences.iter().chain(&audit_divergences) {
             eprintln!("  {divergence}");
         }
         Err(format!(
             "{} divergences — this is cryptographic proof of incorrectness",
-            report.divergences.len()
+            report.divergences.len() + audit_divergences.len()
         ))
     }
+}
+
+/// Re-derive `unusable` for every block from the blobs the node serves (§5.1, §10).
+///
+/// This is the check a false `unusable` claim cannot survive: anyone holding the blob and the
+/// round's beacon can decrypt it themselves. Withholding a manifested blob is a finding too —
+/// the audit cannot be performed, and that is visible obstruction rather than a pass.
+fn audit_collection_over_http(
+    url: &str,
+    blocks: &[popcorn_core::types::Block],
+) -> Result<(usize, Vec<popcorn_node::verify::Divergence>), String> {
+    use popcorn_node::client;
+    use popcorn_node::encoding::{from_base64, hex32};
+    use popcorn_node::verify::audit_collection;
+    use std::collections::BTreeMap;
+
+    let base = client::Url::parse(url)?;
+    let chain_hash =
+        hex32(popcorn_core::constants::DRAND_CHAIN_HASH).ok_or("pinned chain hash is malformed")?;
+
+    // Fetch every manifested blob once, then audit from the local copy.
+    let mut blobs: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
+    let mut audited = 0usize;
+    for block in blocks {
+        for hash in &block.blob_manifest {
+            if blobs.contains_key(hash) {
+                continue;
+            }
+            audited += 1;
+            let path = format!("/blob/{}", to_hex(hash));
+            if let Ok(response) = client::get(&base.join(&path)) {
+                if let Some(encoded) = response["blob"].as_str() {
+                    if let Some(bytes) = from_base64(encoded) {
+                        blobs.insert(*hash, bytes);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut divergences = Vec::new();
+    for block in blocks {
+        divergences.extend(audit_collection(block, &chain_hash, &|hash| {
+            blobs.get(hash).cloned()
+        }));
+    }
+    Ok((audited, divergences))
 }
 
 /// Build, sign, timelock-encrypt and submit one transaction.
@@ -308,6 +380,25 @@ fn submit(args: &[String]) -> Result<(), String> {
         .map(|v| v.parse().unwrap_or(2))
         .unwrap_or(2);
     let target_round = current_round + lead;
+
+    // `htlc-lock` carries its expiry as a number of rounds ahead; resolve it now that the
+    // target round is settled.
+    let action = match action {
+        Action::HtlcLock {
+            to,
+            token,
+            amount,
+            hashlock,
+            expiry_round,
+        } => Action::HtlcLock {
+            to,
+            token,
+            amount,
+            hashlock,
+            expiry_round: target_round + expiry_round,
+        },
+        other => other,
+    };
 
     let payload = TxPayload {
         nonce,
@@ -461,6 +552,49 @@ fn parse_action(args: &[String]) -> Result<popcorn_core::types::Action, String> 
             token_in: token_arg(args, "--token-in")?,
             amount_out: number(args, "--amount-out")?,
             max_amount_in: number(args, "--max-in")?,
+        }),
+        "htlc-lock" => {
+            // Either give the secret and let the tool hash it, or give the hashlock when the
+            // secret belongs to a counterparty on another chain.
+            let hashlock = match (flag(args, "--preimage"), flag(args, "--hashlock")) {
+                (Some(preimage), None) => {
+                    let bytes = hex32(&preimage).ok_or("--preimage must be 32 hex bytes")?;
+                    popcorn_core::crypto::sha256(&bytes)
+                }
+                (None, Some(hashlock)) => {
+                    hex32(&hashlock).ok_or("--hashlock must be 32 hex bytes")?
+                }
+                _ => return Err("pass exactly one of --preimage or --hashlock".to_string()),
+            };
+            // Relative to the target round, because the caller does not know it yet: the
+            // client picks the round, and the expiry has to land after it (§5.2, step 5).
+            let expiry_in: u64 = required(args, "--expiry-in")?
+                .parse()
+                .map_err(|_| "--expiry-in must be a number of rounds".to_string())?;
+            if expiry_in == 0 {
+                return Err("--expiry-in must be at least 1 round".to_string());
+            }
+            Ok(Action::HtlcLock {
+                to: hex32(&required(args, "--to")?).ok_or("--to must be 32 hex bytes")?,
+                token: flag(args, "--token")
+                    .map(|value| hex32(&value).ok_or("--token must be 32 hex bytes"))
+                    .transpose()?
+                    .unwrap_or(popcorn_core::constants::NATIVE_TOKEN),
+                amount: amount()?,
+                hashlock,
+                // Filled in by the caller once the target round is known.
+                expiry_round: expiry_in,
+            })
+        }
+        "htlc-claim" => Ok(Action::HtlcClaim {
+            htlc_id: hex32(&required(args, "--htlc-id")?)
+                .ok_or("--htlc-id must be 32 hex bytes")?,
+            preimage: hex32(&required(args, "--preimage")?)
+                .ok_or("--preimage must be 32 hex bytes")?,
+        }),
+        "htlc-refund" => Ok(Action::HtlcRefund {
+            htlc_id: hex32(&required(args, "--htlc-id")?)
+                .ok_or("--htlc-id must be 32 hex bytes")?,
         }),
         "stake" => Ok(Action::Stake { amount: amount()? }),
         "unstake" => Ok(Action::Unstake { amount: amount()? }),

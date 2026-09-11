@@ -616,3 +616,202 @@ fn a_chain_with_native_pools_verifies_and_reopens() {
     assert_eq!(reopened.state().state_root(), expected_root);
     assert_eq!(reopened.state().total_native_in_pools(), in_pools);
 }
+
+/// All five buckets of §5.5 non-empty at the same time, on one chain.
+///
+/// Pools, stake, HTLC escrow and the staking reserve each came from a different part of the
+/// protocol and each was added at a different time; this drives them together, because an
+/// invariant that only holds when the buckets are exercised one at a time is not an
+/// invariant. It also settles the HTLC the carrier-independent way — a `Publish` from someone
+/// who is neither sender nor recipient — while staking rewards are accruing underneath.
+#[test]
+fn all_five_buckets_hold_together() {
+    use popcorn_core::crypto::sha256;
+    use popcorn_core::ids::{pair_id, token_id};
+    use popcorn_core::types::ExecStatus;
+
+    let dir = TempDir::new("five-buckets");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let carrier_key = SigningKey::from_bytes(&[3u8; 32]);
+    let config = config(&node_key, &foundation_key);
+    let foundation = config.foundation_account();
+    let carrier = account_id_from_pubkey(&carrier_key.verifying_key().to_bytes());
+    let recipient = [0xAAu8; 32];
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config.clone()).unwrap();
+    let mut height = 0u64;
+    let produce = |chain: &mut Chain, height: &mut u64, txs: Vec<SignedTx>| {
+        *height += 1;
+        let round = 999 + *height;
+        let block = chain
+            .produce(beacon_bytes(round), vec![], vec![], txs, vec![], &node_key)
+            .unwrap();
+        assert!(
+            block.results.iter().all(|result| *result == ExecStatus::Ok),
+            "block {} did not execute cleanly: {:?}",
+            block.header.height,
+            block.results
+        );
+        assert!(
+            chain.state().monetary_invariant_holds(0),
+            "the invariant broke at height {}",
+            block.header.height
+        );
+        block
+    };
+
+    // Emission funds the foundation, which then funds the carrier: a third party needs its
+    // own balance to pay a fee, and an account is born on first receipt (§4.2).
+    for _ in 0..24 {
+        produce(&mut chain, &mut height, vec![]);
+    }
+    let mut nonce = 0u64;
+    let mut next = |action: Action, height: u64| {
+        nonce += 1;
+        tx(&foundation_key, nonce, 999 + height, action)
+    };
+
+    let fund = next(
+        Action::Transfer {
+            token: NATIVE_TOKEN,
+            to: carrier,
+            amount: 10 * FEE_TX,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![fund]);
+
+    // Bucket 4: a pool holding native.
+    let token = token_id(&foundation, 2);
+    let pair = pair_id(&NATIVE_TOKEN, &token, 30);
+    let create_token = next(
+        Action::CreateToken {
+            name: *b"FIVEBUCKET\0\0\0\0\0\0",
+            supply: 1_000_000_000_000,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![create_token]);
+    let create_pair = next(
+        Action::CreatePair {
+            token_a: NATIVE_TOKEN,
+            token_b: token,
+            fee_bps: 30,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![create_pair]);
+    let add = next(
+        Action::AddLiquidity {
+            pair,
+            amount0_desired: 500_000_000,
+            amount1_desired: 20_000_000_000,
+            amount0_min: 0,
+            amount1_min: 0,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![add]);
+
+    // Bucket 2: stake. From the next block's close the staker share starts accruing, which
+    // fills bucket 5.
+    let stake = next(
+        Action::Stake {
+            amount: 400_000_000,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![stake]);
+    produce(&mut chain, &mut height, vec![]);
+
+    // Bucket 3: an HTLC escrow, locked to someone who will never send anything.
+    let preimage = [0x42u8; 32];
+    let lock = next(
+        Action::HtlcLock {
+            to: recipient,
+            token: NATIVE_TOKEN,
+            amount: 250_000_000,
+            hashlock: sha256(&preimage),
+            expiry_round: 999 + height + 500,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![lock]);
+
+    // Every bucket is now occupied at once.
+    let state = chain.state();
+    let liquid = state.total_native_balances();
+    let staked = state.total_staked_sum();
+    let escrow = state.total_native_in_htlcs();
+    let pools = state.total_native_in_pools();
+    let reserved = state.global.staking_reserved;
+    for (name, value) in [
+        ("liquid", liquid),
+        ("staked", staked),
+        ("escrow", escrow),
+        ("pools", pools),
+        ("reserve", reserved),
+    ] {
+        assert!(
+            value > 0,
+            "bucket `{name}` is empty; this test proves nothing"
+        );
+    }
+    assert_eq!(
+        liquid + staked + escrow + pools + reserved,
+        state.global.native_emitted - state.global.native_burned,
+        "five buckets must account for every native unit"
+    );
+
+    // Carrier-independent settlement: a third party publishes the 32-byte secret, and the
+    // recipient — who has done nothing at all — is paid (§7.6).
+    assert_eq!(chain.state().balance_of(&recipient, &NATIVE_TOKEN), 0);
+    let publish = tx(
+        &carrier_key,
+        1,
+        999 + height + 1,
+        Action::Publish {
+            topic: [7u8; 32],
+            data: preimage.to_vec(),
+        },
+    );
+    produce(&mut chain, &mut height, vec![publish]);
+    assert_eq!(
+        chain.state().balance_of(&recipient, &NATIVE_TOKEN),
+        250_000_000,
+        "the published preimage did not settle the lock"
+    );
+    assert!(chain.state().htlcs.is_empty());
+
+    // Drain the staking buckets and check the reserve covered every claim.
+    let claim = next(Action::ClaimRewards {}, height + 1);
+    produce(&mut chain, &mut height, vec![claim]);
+    let unstake = next(
+        Action::Unstake {
+            amount: 400_000_000,
+        },
+        height + 1,
+    );
+    produce(&mut chain, &mut height, vec![unstake]);
+
+    assert_eq!(chain.state().global.total_staked, 0);
+    assert_eq!(chain.state().total_native_in_htlcs(), 0);
+    assert!(
+        chain.state().total_native_in_pools() > 0,
+        "the pool is still funded"
+    );
+    assert!(
+        chain.state().global.staking_reserved >= chain.state().total_pending(),
+        "the reserve must still cover every outstanding claim"
+    );
+
+    // And the whole chain verifies, invariant checked at every block.
+    let blocks = chain.storage().blocks_from(0).unwrap();
+    let report = verify_chain(&config, &blocks);
+    assert!(
+        report.is_clean(),
+        "verification failed: {:?}",
+        report.divergences
+    );
+}
