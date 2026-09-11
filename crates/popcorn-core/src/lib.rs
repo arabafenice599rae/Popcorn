@@ -23,7 +23,7 @@ pub mod types;
 pub mod validate;
 
 pub use constants::{CONSENSUS_VERSION, NATIVE_TOKEN, SIGN_DOMAIN};
-pub use state::{Journal, State};
+pub use state::{BalanceError, Journal, State};
 pub use types::{
     Account, AccountId, Action, Amount, Block, ExecStatus, FailReason, Global, Header, Htlc, Pair,
     Receipt, ReceiptPayload, RejectReason, SignedTx, Token, TokenId, TxPayload,

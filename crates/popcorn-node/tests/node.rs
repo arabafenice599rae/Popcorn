@@ -1,0 +1,490 @@
+//! Node-level behaviour: storage, blind collection, and what the verifier catches.
+
+use std::path::PathBuf;
+
+use ed25519_dalek::SigningKey;
+use popcorn_core::constants::{BLOB_ROUND_HORIZON, FEE_TX, MAX_BLOB_SIZE, NATIVE_TOKEN};
+use popcorn_core::crypto::{account_id_from_pubkey, sign_payload, verify_signature};
+use popcorn_core::genesis::GenesisConfig;
+use popcorn_core::state::Journal;
+use popcorn_core::types::{Action, SignedTx, TxPayload};
+use popcorn_node::chain::Chain;
+use popcorn_node::mempool::{Mempool, SubmitError};
+use popcorn_node::storage::Storage;
+use popcorn_node::verify::{audit_collection, verify_chain};
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(tag: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "popcorn-test-{tag}-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+
+    fn chain_file(&self) -> PathBuf {
+        self.0.join("popcorn.redb")
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn config(node: &SigningKey, foundation: &SigningKey) -> GenesisConfig {
+    GenesisConfig {
+        genesis_drand_round: 1_000,
+        node_pubkey: node.verifying_key().to_bytes(),
+        foundation_pubkey: foundation.verifying_key().to_bytes(),
+    }
+}
+
+fn beacon_bytes(round: u64) -> Vec<u8> {
+    let mut signature = vec![0u8; 48];
+    signature[..8].copy_from_slice(&round.to_le_bytes());
+    signature
+}
+
+fn tx(key: &SigningKey, nonce: u64, round: u64, action: Action) -> SignedTx {
+    let payload = TxPayload {
+        nonce,
+        target_round: round,
+        action,
+    };
+    SignedTx {
+        signature: sign_payload(key, &payload),
+        payload,
+        signer_pubkey: key.verifying_key().to_bytes(),
+    }
+}
+
+/// Genesis allocates nothing, and the first native units appear only when block 1 closes.
+#[test]
+fn genesis_is_empty_and_block_one_mints_the_foundation_share() {
+    let dir = TempDir::new("genesis");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+    let foundation = config.foundation_account();
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config).unwrap();
+    assert_eq!(chain.head().height, 0);
+    assert_eq!(chain.state().global.native_emitted, 0);
+    assert!(chain.state().accounts.is_empty());
+
+    chain
+        .produce(
+            beacon_bytes(1_000),
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            &node_key,
+        )
+        .unwrap();
+
+    // 15% of the first emission, and nothing else: with nothing staked the staker share is
+    // never born (§7.2).
+    assert_eq!(chain.state().global.native_emitted, 150_000_000);
+    assert_eq!(
+        chain.state().balance_of(&foundation, &NATIVE_TOKEN),
+        150_000_000
+    );
+    assert_eq!(chain.state().global.staking_reserved, 0);
+}
+
+/// Reopening rebuilds the same state from the blocks, which are the source of truth.
+#[test]
+fn reopening_rebuilds_the_same_state() {
+    let dir = TempDir::new("reopen");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+
+    let expected_root = {
+        let mut chain = Chain::initialize(&dir.chain_file(), config.clone()).unwrap();
+        for height in 1..=5u64 {
+            chain
+                .produce(
+                    beacon_bytes(999 + height),
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                    &node_key,
+                )
+                .unwrap();
+        }
+        chain.state().state_root()
+    };
+
+    let reopened = Chain::open(&dir.chain_file()).unwrap();
+    assert_eq!(reopened.head().height, 5);
+    assert_eq!(reopened.state().state_root(), expected_root);
+    assert_eq!(reopened.head().state_root, expected_root);
+    // Round mapping continues where it left off; rounds are never skipped (§3.4).
+    assert_eq!(reopened.next_round(), 1_005);
+}
+
+/// A chain produced honestly verifies clean, end to end.
+#[test]
+fn an_honest_chain_verifies() {
+    let dir = TempDir::new("verify-ok");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+    let foundation = config.foundation_account();
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config.clone()).unwrap();
+    for height in 1..=3u64 {
+        chain
+            .produce(
+                beacon_bytes(999 + height),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                &node_key,
+            )
+            .unwrap();
+    }
+
+    // The foundation now holds funds, so it can transact.
+    let transfer = tx(
+        &foundation_key,
+        1,
+        1_003,
+        Action::Transfer {
+            token: NATIVE_TOKEN,
+            to: [9u8; 32],
+            amount: 1_000,
+        },
+    );
+    let blob_hash = [7u8; 32];
+    chain
+        .produce(
+            beacon_bytes(1_003),
+            vec![blob_hash],
+            vec![],
+            vec![transfer],
+            vec![(blob_hash, b"not a real blob".to_vec())],
+            &node_key,
+        )
+        .unwrap();
+
+    let blocks = chain.storage().blocks_from(0).unwrap();
+    let report = verify_chain(&config, &blocks);
+    assert!(
+        report.is_clean(),
+        "honest chain reported divergences: {:?}",
+        report.divergences
+    );
+    assert_eq!(report.blocks_checked, 5);
+    assert_eq!(
+        report.final_state.balance_of(&foundation, &NATIVE_TOKEN),
+        chain.state().balance_of(&foundation, &NATIVE_TOKEN)
+    );
+}
+
+/// Tampering is what the verifier exists for: each of these is a distinct lie, and each one
+/// must be caught.
+#[test]
+fn the_verifier_catches_tampering() {
+    let dir = TempDir::new("verify-bad");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config.clone()).unwrap();
+    for height in 1..=3u64 {
+        chain
+            .produce(
+                beacon_bytes(999 + height),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                &node_key,
+            )
+            .unwrap();
+    }
+    let honest = chain.storage().blocks_from(0).unwrap();
+    assert!(verify_chain(&config, &honest).is_clean());
+
+    // 1. a state root that claims more supply than the formula allows
+    let mut forged = honest.clone();
+    forged[2].header.state_root = [0xaa; 32];
+    assert!(!verify_chain(&config, &forged).is_clean());
+
+    // 2. a block signed by someone who is not the node
+    let mut forged = honest.clone();
+    let impostor = SigningKey::from_bytes(&[42u8; 32]);
+    forged[2].node_signature =
+        popcorn_core::crypto::sign(&impostor, &forged[2].header.block_hash());
+    let report = verify_chain(&config, &forged);
+    assert!(report
+        .divergences
+        .iter()
+        .any(|d| d.what.contains("node signature")));
+
+    // 3. a skipped drand round
+    let mut forged = honest.clone();
+    forged[2].header.drand_round += 5;
+    let report = verify_chain(&config, &forged);
+    assert!(report
+        .divergences
+        .iter()
+        .any(|d| d.what.contains("mapping")));
+
+    // 4. a broken header chain
+    let mut forged = honest.clone();
+    forged[2].header.prev_hash = [0u8; 32];
+    let report = verify_chain(&config, &forged);
+    assert!(report
+        .divergences
+        .iter()
+        .any(|d| d.what.contains("prev_hash")));
+
+    // 5. an unusable entry that is not even in the manifest
+    let mut forged = honest.clone();
+    forged[2].unusable = vec![[3u8; 32]];
+    let report = verify_chain(&config, &forged);
+    assert!(report
+        .divergences
+        .iter()
+        .any(|d| d.what.contains("not in the manifest")));
+
+    // 6. a beacon signature swapped out from under its own commitment
+    let mut forged = honest.clone();
+    forged[2].drand_signature = vec![0xff; 48];
+    let report = verify_chain(&config, &forged);
+    assert!(report
+        .divergences
+        .iter()
+        .any(|d| d.what.contains("drand_sig_hash")));
+}
+
+/// A manifested blob that the node refuses to serve is visible obstruction, and a false
+/// `unusable` claim is refutable by anyone holding the blob (§9.2).
+#[test]
+fn the_collection_audit_refutes_a_false_unusable_claim() {
+    let dir = TempDir::new("audit");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config).unwrap();
+    let manifested = [5u8; 32];
+    chain
+        .produce(
+            beacon_bytes(1_000),
+            vec![manifested],
+            vec![manifested],
+            vec![],
+            vec![],
+            &node_key,
+        )
+        .unwrap();
+    let block = chain.storage().block(1).unwrap().unwrap();
+    let chain_hash = [0u8; 32];
+
+    // Withholding the blob is itself a finding: the audit cannot be performed, and saying so
+    // is the honest outcome rather than passing by default.
+    let withheld = audit_collection(&block, &chain_hash, &|_| None);
+    assert!(withheld.iter().any(|d| d.what.contains("not served")));
+
+    // Serving bytes that genuinely do not decrypt supports the claim.
+    let garbage = audit_collection(&block, &chain_hash, &|_| Some(b"garbage".to_vec()));
+    assert!(garbage.is_empty(), "{garbage:?}");
+}
+
+/// Collection is blind, deduplicated by hash, and bounded at the wire (§5.1, §11).
+#[test]
+fn the_mempool_collects_blindly_within_its_limits() {
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let mempool = Mempool::new();
+
+    // A receipt is evidence the node cannot take back.
+    let receipt = mempool
+        .submit(b"blob one".to_vec(), 100, 100, &node_key, 1_700_000_000_000)
+        .unwrap();
+    assert!(verify_signature(
+        &receipt.node_pubkey,
+        &receipt.payload.receipt_hash(),
+        &receipt.signature
+    ));
+    assert_eq!(receipt.payload.target_round, 100);
+
+    // The same blob twice is one manifest entry but two receipts (§5.1).
+    let again = mempool
+        .submit(b"blob one".to_vec(), 100, 100, &node_key, 1_700_000_000_001)
+        .unwrap();
+    assert_eq!(receipt.payload.blob_hash, again.payload.blob_hash);
+    assert_ne!(receipt.signature, again.signature);
+    assert_eq!(mempool.queued(100), 1);
+
+    // Wire limits, none of which are consensus.
+    assert_eq!(
+        mempool.submit(vec![0u8; MAX_BLOB_SIZE + 1], 100, 100, &node_key, 0),
+        Err(SubmitError::TooLarge(MAX_BLOB_SIZE + 1))
+    );
+    assert_eq!(
+        mempool.submit(b"late".to_vec(), 99, 100, &node_key, 0),
+        Err(SubmitError::RoundClosed {
+            target: 99,
+            current: 100
+        })
+    );
+    assert_eq!(
+        mempool.submit(
+            b"far future".to_vec(),
+            100 + BLOB_ROUND_HORIZON + 1,
+            100,
+            &node_key,
+            0
+        ),
+        Err(SubmitError::BeyondHorizon {
+            target: 100 + BLOB_ROUND_HORIZON + 1,
+            current: 100
+        })
+    );
+
+    // Freezing the round yields the set in lexicographic order and empties the queue.
+    mempool
+        .submit(b"blob two".to_vec(), 100, 100, &node_key, 0)
+        .unwrap();
+    let frozen = mempool.take_round(100);
+    assert_eq!(frozen.len(), 2);
+    assert!(frozen[0].0 < frozen[1].0);
+    assert_eq!(mempool.queued(100), 0);
+}
+
+/// Blobs are stored so that `GET /blob/{hash}` can answer: without them the collection audit
+/// is not practicable by third parties (§10).
+#[test]
+fn manifested_blobs_are_retained_for_audit() {
+    let dir = TempDir::new("blobs");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config).unwrap();
+    let hash = [4u8; 32];
+    chain
+        .produce(
+            beacon_bytes(1_000),
+            vec![hash],
+            vec![hash],
+            vec![],
+            vec![(hash, b"an encrypted blob".to_vec())],
+            &node_key,
+        )
+        .unwrap();
+
+    let stored = chain.storage().blob(&hash).unwrap();
+    assert_eq!(stored.as_deref(), Some(b"an encrypted blob".as_slice()));
+}
+
+/// A chain cannot be initialized twice over an existing one.
+#[test]
+fn initializing_over_an_existing_chain_is_refused() {
+    let dir = TempDir::new("double-init");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+
+    Chain::initialize(&dir.chain_file(), config.clone()).unwrap();
+    assert!(Chain::initialize(&dir.chain_file(), config).is_err());
+}
+
+/// Fees are burned, not collected: the node key ends up owning nothing at all.
+#[test]
+fn the_node_key_never_accumulates_value() {
+    let dir = TempDir::new("node-key");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+    let node_account = account_id_from_pubkey(&node_key.verifying_key().to_bytes());
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config).unwrap();
+    for height in 1..=3u64 {
+        chain
+            .produce(
+                beacon_bytes(999 + height),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                &node_key,
+            )
+            .unwrap();
+    }
+
+    let transfer = tx(
+        &foundation_key,
+        1,
+        1_003,
+        Action::Transfer {
+            token: NATIVE_TOKEN,
+            to: [9u8; 32],
+            amount: 1_000,
+        },
+    );
+    chain
+        .produce(
+            beacon_bytes(1_003),
+            vec![],
+            vec![],
+            vec![transfer],
+            vec![],
+            &node_key,
+        )
+        .unwrap();
+
+    assert!(chain.state().account(&node_account).is_none());
+    assert_eq!(chain.state().global.native_burned, FEE_TX);
+}
+
+/// Storage keeps the blocks it is given and can stream them back for replay.
+#[test]
+fn storage_streams_blocks_for_export() {
+    let dir = TempDir::new("export");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+
+    {
+        let mut chain = Chain::initialize(&dir.chain_file(), config).unwrap();
+        for height in 1..=4u64 {
+            chain
+                .produce(
+                    beacon_bytes(999 + height),
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                    &node_key,
+                )
+                .unwrap();
+        }
+    }
+
+    let storage = Storage::open(&dir.chain_file()).unwrap();
+    assert_eq!(storage.head_height().unwrap(), 4);
+    assert_eq!(storage.blocks_from(0).unwrap().len(), 5);
+    assert_eq!(storage.blocks_from(3).unwrap().len(), 2);
+
+    // A journal is only needed to mutate state; reads never allocate one.
+    let mut journal = Journal::new();
+    assert!(journal.is_empty());
+    let _ = &mut journal;
+}

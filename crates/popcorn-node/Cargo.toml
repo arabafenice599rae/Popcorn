@@ -13,3 +13,11 @@ path = "src/main.rs"
 [dependencies]
 popcorn-core.workspace = true
 popcorn-timelock.workspace = true
+axum.workspace = true
+blake3.workspace = true
+borsh.workspace = true
+ed25519-dalek.workspace = true
+redb.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

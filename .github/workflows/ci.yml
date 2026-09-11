@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  consensus:
+    name: consensus gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # Structural rules that a test cannot express: no unordered collections anywhere near a
+      # commitment (§2.3), exact dependency pinning (§13), and the naming rule.
+      - name: Structural gates
+        run: ./ci/consensus-gates.sh
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lints
+        run: cargo clippy --workspace --all-targets
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      # Everything below is a precondition for producing genesis at all (SPEC.md §8, §2.3, §10).
+      - name: Tests, including the consensus gates
+        run: cargo test --workspace
+
+      # §8 asks for millions of random sequences. The default is a fast slice for local runs;
+      # here it runs the real thing — four seeds at two million operations each, which takes
+      # seconds in release. A gate nobody runs at scale is not a gate.
+      - name: Staking property gate (full)
+        run: cargo test -p popcorn-core --release --test staking_gate
+        env:
+          POPCORN_GATE_ITERS: "2000000"
+
+  offline:
+    name: no network needed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The committed vector was produced against a real drand round; replaying it must need
+      # nothing but the repository. If this job ever needs the network, the claim in §10 that
+      # state replay is self-contained has quietly stopped being true.
+      - name: Replay the committed vector
+        run: cargo test -p popcorn-timelock --test vectors

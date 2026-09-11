@@ -435,15 +435,69 @@ fn multi_hop_swaps_route_and_settle() {
     let pair_ab = pair_id(&token_a, &token_b, 30);
 
     let setup = vec![
-        alice.tx(1, 1, Action::CreateToken { name: *b"AAAA\0\0\0\0\0\0\0\0\0\0\0\0", supply: 5_000_000_000 }),
-        alice.tx(2, 1, Action::CreateToken { name: *b"BBBB\0\0\0\0\0\0\0\0\0\0\0\0", supply: 5_000_000_000 }),
-        alice.tx(3, 1, Action::CreatePair { token_a: NATIVE_TOKEN, token_b: token_a, fee_bps: 30 }),
-        alice.tx(4, 1, Action::CreatePair { token_a, token_b, fee_bps: 30 }),
-        alice.tx(5, 1, Action::AddLiquidity { pair: pair_na, amount0_desired: 1_000_000_000, amount1_desired: 1_000_000_000, amount0_min: 0, amount1_min: 0 }),
-        alice.tx(6, 1, Action::AddLiquidity { pair: pair_ab, amount0_desired: 1_000_000_000, amount1_desired: 1_000_000_000, amount0_min: 0, amount1_min: 0 }),
+        alice.tx(
+            1,
+            1,
+            Action::CreateToken {
+                name: *b"AAAA\0\0\0\0\0\0\0\0\0\0\0\0",
+                supply: 5_000_000_000,
+            },
+        ),
+        alice.tx(
+            2,
+            1,
+            Action::CreateToken {
+                name: *b"BBBB\0\0\0\0\0\0\0\0\0\0\0\0",
+                supply: 5_000_000_000,
+            },
+        ),
+        alice.tx(
+            3,
+            1,
+            Action::CreatePair {
+                token_a: NATIVE_TOKEN,
+                token_b: token_a,
+                fee_bps: 30,
+            },
+        ),
+        alice.tx(
+            4,
+            1,
+            Action::CreatePair {
+                token_a,
+                token_b,
+                fee_bps: 30,
+            },
+        ),
+        alice.tx(
+            5,
+            1,
+            Action::AddLiquidity {
+                pair: pair_na,
+                amount0_desired: 1_000_000_000,
+                amount1_desired: 1_000_000_000,
+                amount0_min: 0,
+                amount1_min: 0,
+            },
+        ),
+        alice.tx(
+            6,
+            1,
+            Action::AddLiquidity {
+                pair: pair_ab,
+                amount0_desired: 1_000_000_000,
+                amount1_desired: 1_000_000_000,
+                amount0_min: 0,
+                amount1_min: 0,
+            },
+        ),
     ];
     let output = run_batch(&mut state, 1, setup, foundation);
-    assert!(output.results.iter().all(|r| *r == ExecStatus::Ok), "{:?}", output.results);
+    assert!(
+        output.results.iter().all(|r| *r == ExecStatus::Ok),
+        "{:?}",
+        output.results
+    );
 
     let before_b = state.balance_of(&alice.id, &token_b);
     let swap = alice.tx(

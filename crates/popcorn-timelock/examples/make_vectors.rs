@@ -121,11 +121,17 @@ fn main() {
         timestamp_ms: 1_700_000_000_000,
     };
     fields.insert("node_pubkey", hex(&node_key.verifying_key().to_bytes()));
-    fields.insert("receipt_borsh", hex(&borsh::to_vec(&receipt_payload).unwrap()));
+    fields.insert(
+        "receipt_borsh",
+        hex(&borsh::to_vec(&receipt_payload).unwrap()),
+    );
     fields.insert("receipt_hash", hex(&receipt_payload.receipt_hash()));
     fields.insert(
         "receipt_signature",
-        hex(&popcorn_core::crypto::sign(&node_key, &receipt_payload.receipt_hash())),
+        hex(&popcorn_core::crypto::sign(
+            &node_key,
+            &receipt_payload.receipt_hash(),
+        )),
     );
 
     let json = serde_json::to_string_pretty(&fields).unwrap();

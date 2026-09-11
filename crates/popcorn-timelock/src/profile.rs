@@ -44,7 +44,10 @@ pub enum ProfileError {
     WrongStanzaType(String),
     MalformedStanzaArgs,
     NonCanonicalRound,
-    RoundMismatch { expected: u64, found: u64 },
+    RoundMismatch {
+        expected: u64,
+        found: u64,
+    },
     ChainHashMismatch,
     NonCanonicalBase64,
     MissingMac,

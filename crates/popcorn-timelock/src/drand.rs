@@ -44,7 +44,9 @@ impl DrandTimelock {
                             return Err(TimelockError::WrongChain);
                         }
                         if fetched.scheme_id() != DRAND_SCHEME {
-                            return Err(TimelockError::WrongScheme(fetched.scheme_id().to_string()));
+                            return Err(TimelockError::WrongScheme(
+                                fetched.scheme_id().to_string(),
+                            ));
                         }
                         info = Some(fetched);
                     }
@@ -61,7 +63,7 @@ impl DrandTimelock {
             chain_hash,
             public_key: info.public_key(),
             genesis_time: info.genesis_time(),
-            period: info.period() as u64,
+            period: info.period(),
             remotes: urls,
             cache: Mutex::new(None),
         })

@@ -93,7 +93,11 @@ fn enum_discriminants_match_the_normative_table() {
         (RejectReason::NonceExhausted, 10),
     ];
     for (reason, expected) in cases {
-        assert_eq!(borsh::to_vec(&reason).unwrap(), vec![expected], "{reason:?}");
+        assert_eq!(
+            borsh::to_vec(&reason).unwrap(),
+            vec![expected],
+            "{reason:?}"
+        );
     }
 
     let fails: [(FailReason, u8); 19] = [
@@ -118,7 +122,11 @@ fn enum_discriminants_match_the_normative_table() {
         (FailReason::HtlcDuplicateHashlock, 18),
     ];
     for (reason, expected) in fails {
-        assert_eq!(borsh::to_vec(&reason).unwrap(), vec![expected], "{reason:?}");
+        assert_eq!(
+            borsh::to_vec(&reason).unwrap(),
+            vec![expected],
+            "{reason:?}"
+        );
     }
 
     // ExecStatus wraps the reason, so a Failed status is two bytes: variant then reason.
@@ -177,11 +185,7 @@ fn identifier_domains_do_not_collide() {
 #[test]
 fn signatures_are_domain_separated_and_strict() {
     let actor = Actor::new(1);
-    let tx = actor.tx(
-        1,
-        10,
-        popcorn_core::types::Action::Stake { amount: 1_000 },
-    );
+    let tx = actor.tx(1, 10, popcorn_core::types::Action::Stake { amount: 1_000 });
 
     assert!(verify_signature(
         &actor.pubkey(),
@@ -191,7 +195,11 @@ fn signatures_are_domain_separated_and_strict() {
 
     // The same payload hashed without the domain does not verify.
     let undomained = blake3_hash(&borsh::to_vec(&tx.payload).unwrap());
-    assert!(!verify_signature(&actor.pubkey(), &undomained, &tx.signature));
+    assert!(!verify_signature(
+        &actor.pubkey(),
+        &undomained,
+        &tx.signature
+    ));
 
     // A different signer's key does not verify either.
     let other = Actor::new(2);

@@ -1,1 +1,384 @@
-fn main() {}
+//! The POPCORN binary: `genesis`, `node`, `verify`, `keygen`, `account`.
+//!
+//! Argument parsing is hand-rolled on purpose. §2 fixes the dependency list, and a CLI parser
+//! is not a reason to widen a list that the specification treats as part of the audit surface.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
+
+use popcorn_core::constants::{DRAND_REMOTES, GENESIS_SUPPLY};
+use popcorn_core::genesis::GenesisConfig;
+use popcorn_node::api::{router, NodeApi};
+use popcorn_node::chain::Chain;
+use popcorn_node::encoding::to_hex;
+use popcorn_node::mempool::Mempool;
+use popcorn_node::producer::Producer;
+use popcorn_node::verify::verify_chain;
+use popcorn_node::{keys, storage::Storage};
+use popcorn_timelock::{DrandTimelock, TimelockProvider};
+use tokio::sync::{broadcast, Mutex};
+
+const USAGE: &str = "\
+popcorn — a single-operator deterministic/verifiable execution chain
+
+USAGE:
+    popcorn keygen --out <FILE>
+    popcorn genesis --data <DIR> --node-key <FILE> --foundation-key <FILE> [--drand-round <N>]
+    popcorn node    --data <DIR> --node-key <FILE> [--listen <ADDR>]
+    popcorn verify  --data <DIR>
+    popcorn account --key <FILE>
+    popcorn submit  --key <FILE> --node <URL> <ACTION>
+
+ACTIONS for `submit`:
+    transfer --to <ACCOUNT_HEX> --amount <N> [--token <TOKEN_HEX>]
+    stake    --amount <N>
+    unstake  --amount <N>
+    claim
+    publish  --topic <TOPIC_HEX> --data <HEX>
+
+Keys are distinct by design: the node key signs blocks and controls no funds, the
+foundation key holds value and signs no blocks. Only the node key is ever loaded by
+`popcorn node`.
+";
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let command = args.first().map(String::as_str).unwrap_or("help");
+
+    let result = match command {
+        "keygen" => keygen(&args),
+        "genesis" => genesis(&args),
+        "node" => node(&args),
+        "verify" => verify(&args),
+        "account" => account(&args),
+        "submit" => submit(&args),
+        "help" | "--help" | "-h" => {
+            print!("{USAGE}");
+            Ok(())
+        }
+        other => Err(format!("unknown command `{other}`\n\n{USAGE}")),
+    };
+
+    if let Err(message) = result {
+        eprintln!("error: {message}");
+        std::process::exit(1);
+    }
+}
+
+/// `--name value` lookup.
+fn flag(args: &[String], name: &str) -> Option<String> {
+    let position = args.iter().position(|arg| arg == name)?;
+    args.get(position + 1).cloned()
+}
+
+fn required(args: &[String], name: &str) -> Result<String, String> {
+    flag(args, name).ok_or_else(|| format!("missing {name}\n\n{USAGE}"))
+}
+
+fn keygen(args: &[String]) -> Result<(), String> {
+    let out = PathBuf::from(required(args, "--out")?);
+    if out.exists() {
+        // Overwriting a key destroys funds or an identity; refuse rather than ask.
+        return Err(format!("{} already exists", out.display()));
+    }
+    let key = keys::generate();
+    keys::save(&key, &out).map_err(|e| e.to_string())?;
+    println!("wrote {}", out.display());
+    println!("public key: {}", to_hex(&key.verifying_key().to_bytes()));
+    println!(
+        "account id: {}",
+        to_hex(&popcorn_core::crypto::account_id_from_pubkey(
+            &key.verifying_key().to_bytes()
+        ))
+    );
+    Ok(())
+}
+
+fn account(args: &[String]) -> Result<(), String> {
+    let path = PathBuf::from(required(args, "--key")?);
+    let pubkey = keys::public_of(&path).map_err(|e| e.to_string())?;
+    println!("public key: {}", to_hex(&pubkey));
+    println!(
+        "account id: {}",
+        to_hex(&popcorn_core::crypto::account_id_from_pubkey(&pubkey))
+    );
+    Ok(())
+}
+
+fn genesis(args: &[String]) -> Result<(), String> {
+    let data = PathBuf::from(required(args, "--data")?);
+    let node_key = PathBuf::from(required(args, "--node-key")?);
+    let foundation_key = PathBuf::from(required(args, "--foundation-key")?);
+
+    std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+
+    let node_pubkey = keys::public_of(&node_key).map_err(|e| e.to_string())?;
+    let foundation_pubkey = keys::public_of(&foundation_key).map_err(|e| e.to_string())?;
+    if node_pubkey == foundation_pubkey {
+        return Err("the node key and the foundation key must be distinct (§1)".to_string());
+    }
+
+    // Default to the round current at genesis time; the mapping round(h) = G + h − 1 starts
+    // from whatever is stamped here and never skips afterwards (§3.4).
+    let genesis_drand_round = match flag(args, "--drand-round") {
+        Some(value) => value
+            .parse()
+            .map_err(|_| "--drand-round must be a number")?,
+        None => {
+            let timelock = DrandTimelock::connect(&DRAND_REMOTES).map_err(|e| format!("{e:?}"))?;
+            timelock.round_for_time(popcorn_node::producer::now_seconds()) + 2
+        }
+    };
+
+    let config = GenesisConfig {
+        genesis_drand_round,
+        node_pubkey,
+        foundation_pubkey,
+    };
+    let chain = Chain::initialize(&chain_path(&data), config).map_err(|e| e.to_string())?;
+
+    println!("initialized chain at {}", data.display());
+    println!("genesis drand round: {genesis_drand_round}");
+    println!("genesis supply:      {GENESIS_SUPPLY} (fair launch: nothing is allocated)");
+    println!("node pubkey:         {}", to_hex(&node_pubkey));
+    println!(
+        "foundation account:  {}",
+        to_hex(&chain.config().foundation_account())
+    );
+    println!("genesis state root:  {}", to_hex(&chain.head().state_root));
+    Ok(())
+}
+
+fn node(args: &[String]) -> Result<(), String> {
+    let data = PathBuf::from(required(args, "--data")?);
+    let node_key_path = PathBuf::from(required(args, "--node-key")?);
+    let listen = flag(args, "--listen").unwrap_or_else(|| "127.0.0.1:8080".to_string());
+
+    let node_key = keys::load(&node_key_path).map_err(|e| e.to_string())?;
+    let chain = Chain::open(&chain_path(&data)).map_err(|e| e.to_string())?;
+
+    if chain.config().node_pubkey != node_key.verifying_key().to_bytes() {
+        return Err("this key is not the node key stamped into genesis".to_string());
+    }
+
+    let timelock = DrandTimelock::connect(&DRAND_REMOTES).map_err(|e| format!("{e:?}"))?;
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    runtime.block_on(async move {
+        let chain = Arc::new(Mutex::new(chain));
+        let mempool = Arc::new(Mempool::new());
+        let timelock: Arc<dyn TimelockProvider> = Arc::new(timelock);
+        let (blocks, _) = broadcast::channel(256);
+
+        let api = Arc::new(NodeApi {
+            chain: Arc::clone(&chain),
+            mempool: Arc::clone(&mempool),
+            timelock: Arc::clone(&timelock),
+            node_key: node_key.clone(),
+            blocks: blocks.clone(),
+        });
+
+        let producer = Arc::new(Producer {
+            chain: Arc::clone(&chain),
+            mempool: Arc::clone(&mempool),
+            timelock: Arc::clone(&timelock),
+            node_key,
+            blocks,
+        });
+
+        {
+            let chain = chain.lock().await;
+            println!(
+                "head {} · next round {} · listening on {listen}",
+                chain.head().height,
+                chain.next_round()
+            );
+        }
+
+        // One batch per drand round (§11).
+        tokio::spawn(Arc::clone(&producer).run(Duration::from_secs(3)));
+
+        let listener = tokio::net::TcpListener::bind(&listen)
+            .await
+            .map_err(|e| e.to_string())?;
+        axum::serve(listener, router(api))
+            .with_graceful_shutdown(async {
+                let _ = tokio::signal::ctrl_c().await;
+                println!("\nshutting down");
+            })
+            .await
+            .map_err(|e| e.to_string())
+    })
+}
+
+fn verify(args: &[String]) -> Result<(), String> {
+    let data = PathBuf::from(required(args, "--data")?);
+    let storage = Storage::open(&chain_path(&data)).map_err(|e| e.to_string())?;
+    let config = storage
+        .genesis_config()
+        .map_err(|e| e.to_string())?
+        .ok_or("chain is not initialized")?;
+    let blocks = storage.blocks_from(0).map_err(|e| e.to_string())?;
+
+    let report = verify_chain(&config, &blocks);
+    println!("replayed {} blocks", report.blocks_checked);
+
+    if report.is_clean() {
+        let global = &report.final_state.global;
+        println!("every state root, root and monetary invariant matches");
+        println!("  emitted:   {}", global.native_emitted);
+        println!("  burned:    {}", global.native_burned);
+        println!("  staked:    {}", global.total_staked);
+        println!("  reserved:  {}", global.staking_reserved);
+        println!("  state root: {}", to_hex(&report.final_state.state_root()));
+        Ok(())
+    } else {
+        for divergence in &report.divergences {
+            eprintln!("  {divergence}");
+        }
+        Err(format!(
+            "{} divergences — this is cryptographic proof of incorrectness",
+            report.divergences.len()
+        ))
+    }
+}
+
+/// Build, sign, timelock-encrypt and submit one transaction.
+///
+/// This is the bot flow of §3.2 in miniature: the wallet signs, the client encrypts toward a
+/// future round, and the node answers with a receipt it cannot take back. Obtaining that
+/// receipt before the round's deadline is the only per-blob protection the model offers
+/// (§9.2), so the receipt is printed, not swallowed.
+fn submit(args: &[String]) -> Result<(), String> {
+    use popcorn_core::types::{SignedTx, TxPayload};
+    use popcorn_node::client;
+    use popcorn_node::encoding::to_base64;
+
+    let key_path = PathBuf::from(required(args, "--key")?);
+    let key = keys::load(&key_path).map_err(|e| e.to_string())?;
+    let pubkey = key.verifying_key().to_bytes();
+    let signer = popcorn_core::crypto::account_id_from_pubkey(&pubkey);
+
+    let node_url = flag(args, "--node").unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+    let base = client::Url::parse(&node_url)?;
+
+    let action = parse_action(args)?;
+
+    // The next usable nonce is whatever the chain says was last executed, plus one.
+    let account = client::get(&base.join(&format!("/account/{}", to_hex(&signer))))
+        .map_err(|e| format!("this account cannot transact yet: {e}"))?;
+    let nonce = account["nonce"].as_u64().unwrap_or(0) + 1;
+
+    // Target a round far enough ahead that the blob arrives before collection closes.
+    let head = client::get(&base.join("/head"))?;
+    let current_round = head["drand_round"].as_u64().unwrap_or(0);
+    let lead: u64 = flag(args, "--lead")
+        .map(|v| v.parse().unwrap_or(2))
+        .unwrap_or(2);
+    let target_round = current_round + lead;
+
+    let payload = TxPayload {
+        nonce,
+        target_round,
+        action,
+    };
+    let tx = SignedTx {
+        signature: popcorn_core::crypto::sign_payload(&key, &payload),
+        payload,
+        signer_pubkey: pubkey,
+    };
+    let encoded = borsh::to_vec(&tx).map_err(|e| e.to_string())?;
+
+    let timelock = DrandTimelock::connect(&DRAND_REMOTES).map_err(|e| format!("{e:?}"))?;
+    let blob = timelock
+        .encrypt(&encoded, target_round)
+        .map_err(|e| format!("{e:?}"))?;
+    if blob.len() > popcorn_core::constants::MAX_BLOB_SIZE {
+        return Err(format!(
+            "blob is {} bytes, over the {} byte wire limit",
+            blob.len(),
+            popcorn_core::constants::MAX_BLOB_SIZE
+        ));
+    }
+
+    let receipt = client::post(
+        &base.join("/tx"),
+        &serde_json::json!({ "blob": to_base64(&blob), "target_round": target_round }),
+    )?;
+
+    println!("tx_id:        {}", to_hex(&tx.tx_id()));
+    println!("target round: {target_round} (head is at {current_round})");
+    println!(
+        "blob hash:    {}",
+        receipt["blob_hash"].as_str().unwrap_or("?")
+    );
+    println!(
+        "receipt:      {}",
+        receipt["signature"].as_str().unwrap_or("?")
+    );
+    println!(
+        "\nKeep this receipt. If the blob never appears in the manifest of round {target_round},"
+    );
+    println!(
+        "the receipt and that block are two signatures by the same node contradicting each other."
+    );
+    Ok(())
+}
+
+fn parse_action(args: &[String]) -> Result<popcorn_core::types::Action, String> {
+    use popcorn_core::types::Action;
+    use popcorn_node::encoding::{from_hex, hex32};
+
+    let amount = || -> Result<u128, String> {
+        required(args, "--amount")?
+            .parse()
+            .map_err(|_| "--amount must be a whole number".to_string())
+    };
+
+    // The action is the first bare word after the command, skipping `--flag value` pairs:
+    // without skipping the values, a key path would be read as the action.
+    let mut kind = None;
+    let mut index = 1;
+    while index < args.len() {
+        if args[index].starts_with("--") {
+            index += 2;
+        } else {
+            kind = Some(args[index].as_str());
+            break;
+        }
+    }
+    let kind = kind.ok_or_else(|| format!("missing action\n\n{USAGE}"))?;
+
+    match kind {
+        "transfer" => {
+            let to = hex32(&required(args, "--to")?).ok_or("--to must be 32 hex bytes")?;
+            let token = match flag(args, "--token") {
+                Some(value) => hex32(&value).ok_or("--token must be 32 hex bytes")?,
+                None => popcorn_core::constants::NATIVE_TOKEN,
+            };
+            Ok(Action::Transfer {
+                token,
+                to,
+                amount: amount()?,
+            })
+        }
+        "stake" => Ok(Action::Stake { amount: amount()? }),
+        "unstake" => Ok(Action::Unstake { amount: amount()? }),
+        "claim" => Ok(Action::ClaimRewards {}),
+        "publish" => {
+            let topic = hex32(&required(args, "--topic")?).ok_or("--topic must be 32 hex bytes")?;
+            let data = from_hex(&required(args, "--data")?).ok_or("--data must be hex")?;
+            Ok(Action::Publish { topic, data })
+        }
+        other => Err(format!("unknown action `{other}`\n\n{USAGE}")),
+    }
+}
+
+fn chain_path(data: &Path) -> PathBuf {
+    data.join("popcorn.redb")
+}

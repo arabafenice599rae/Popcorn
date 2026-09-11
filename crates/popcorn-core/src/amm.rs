@@ -114,7 +114,8 @@ pub fn actual_deposit(
     reserve0: Amount,
     reserve1: Amount,
 ) -> Result<(Amount, Amount), FailReason> {
-    let a1_opt = to_u128(U256::from(amount0_desired) * U256::from(reserve1) / U256::from(reserve0))?;
+    let a1_opt =
+        to_u128(U256::from(amount0_desired) * U256::from(reserve1) / U256::from(reserve0))?;
     if a1_opt <= amount1_desired {
         Ok((amount0_desired, a1_opt))
     } else {

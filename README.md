@@ -63,30 +63,53 @@ crates/
   popcorn-core/       consensus: types, IDs, state root, AMM, staking, validation, execution
   popcorn-timelock/   TimelockProvider: drand beacons, POPCORN-TLOCK-AGE-V1 blobs
   popcorn-node/       storage (redb), HTTP/WS API, block producer, replay verifier, CLI
+vectors/              committed end-to-end fixtures, replayable offline
+ci/consensus-gates.sh structural gates: unordered collections, exact pinning, naming
 SPEC.md               normative specification (v0.9.3)
 CONSENSUS-LOCK.md     exact pinned versions of every consensus-relevant dependency
 ```
 
 `popcorn-core` is pure: no I/O, no async, no clock. Everything that can influence the state
 root lives there, which is what makes the reference executor and the replay verifier possible.
+The node crate decides only operational things — when to close collection, how to survive a
+blind phase that collects no fees, what to serve — and §13.3 makes those free to change.
 
 ## Build and run
 
 ```bash
 cargo build --release
-cargo test --workspace              # includes the consensus gates below
+cargo test --workspace       # 90 tests, including the gates below
+./ci/consensus-gates.sh      # structural rules a test cannot express
+```
 
-# initialize a chain (block 0, empty state, fair launch)
-./target/release/popcorn keygen --out node.key
-./target/release/popcorn keygen --out foundation.key
-./target/release/popcorn genesis --data ./data \
-    --node-key node.key --foundation-key foundation.key
+Start a chain. The two keys are distinct by design: the node key signs blocks and controls no
+funds, the foundation key holds value and signs no blocks.
 
-# run the node
-./target/release/popcorn node --data ./data --listen 127.0.0.1:8080
+```bash
+popcorn keygen --out node.key
+popcorn keygen --out foundation.key
+popcorn genesis --data ./data --node-key node.key --foundation-key foundation.key
+popcorn node    --data ./data --node-key node.key --listen 127.0.0.1:8080
+```
 
-# replay the chain from genesis and compare every state root
-./target/release/popcorn verify --data ./data
+Genesis allocates nothing. The first native units appear when block 1 closes, as the
+foundation's 15% share — and with nothing staked yet, the other 85% is simply never born.
+
+Submit a transaction. The client signs, encrypts toward a future drand round, and gets back a
+receipt the node cannot take back:
+
+```bash
+popcorn submit --key foundation.key --node http://127.0.0.1:8080 \
+    transfer --to <ACCOUNT_HEX> --amount 1000000000
+popcorn submit --key alice.key --node http://127.0.0.1:8080 stake --amount 500000000
+popcorn submit --key alice.key --node http://127.0.0.1:8080 claim
+```
+
+Verify the whole chain from genesis — every signature, every root, every state root, and the
+monetary invariant at every block:
+
+```bash
+popcorn verify --data ./data
 ```
 
 ## Consensus gates
@@ -98,10 +121,17 @@ These run in `cargo test` and are the conditions under which genesis may be prod
   conservation at each settle, and `staking_reserved ≥ Σ pending ≥ 0`.
 - **Canonicity test** (§2.3) — same logical state, different insertion orders → identical
   bytes → identical `state_root`.
-- **Consensus-grade vectors** (§10) — byte-for-byte fixtures from signed transaction through
-  ordered batch to `state_root` and receipt, reproducible by an independent implementer.
-- **Cross-language blob vectors** (§2.4) — encrypt/decrypt across Rust `tlock_age`, tlock-js
-  and drand/tlock Go, byte-identical, rejection cases included.
+- **Consensus-grade vectors** (§10) — [`vectors/end_to_end.json`](vectors/end_to_end.json) is a
+  real fixture: a transaction encrypted toward drand quicknet round 1000, that round's actual
+  BLS signature, and every derived value through `state_root`, `block_hash` and the receipt. It
+  replays with no network at all, so an independent implementation can check itself against it.
+- **Profile acceptance** (§3.6) — every prefix and every single-byte corruption of a valid blob
+  must be refused rather than crash, and the rejection cases are pinned alongside the round
+  trip: two implementations that disagree about which blobs are `unusable` disagree about which
+  transactions exist.
+- **Cross-language blob vectors** (§2.4) — *still to do*: encrypt/decrypt across Rust
+  `tlock_age`, tlock-js and drand/tlock Go, byte-identical. The Rust half is in place; the Go
+  and JS halves are not, and until they are, the cross-language claim is unproven.
 
 ## Operational obligations (outside consensus)
 

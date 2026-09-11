@@ -93,9 +93,15 @@ fn replaying_the_recorded_batch_reproduces_every_root() {
         },
     );
 
-    assert_eq!(output.header.collection_root, array32(&vector["collection_root"]));
+    assert_eq!(
+        output.header.collection_root,
+        array32(&vector["collection_root"])
+    );
     assert_eq!(output.header.txs_root, array32(&vector["txs_root"]));
-    assert_eq!(output.header.rejected_root, array32(&vector["rejected_root"]));
+    assert_eq!(
+        output.header.rejected_root,
+        array32(&vector["rejected_root"])
+    );
     assert_eq!(output.header.results_root, array32(&vector["results_root"]));
     assert_eq!(output.header.state_root, array32(&vector["state_root"]));
     assert_eq!(output.header.block_hash(), array32(&vector["block_hash"]));
@@ -113,7 +119,10 @@ fn the_recorded_receipt_reproduces_and_verifies() {
         timestamp_ms: 1_700_000_000_000,
     };
 
-    assert_eq!(borsh::to_vec(&payload).unwrap(), unhex(&vector["receipt_borsh"]));
+    assert_eq!(
+        borsh::to_vec(&payload).unwrap(),
+        unhex(&vector["receipt_borsh"])
+    );
     assert_eq!(payload.receipt_hash(), array32(&vector["receipt_hash"]));
 
     let signature: [u8; 64] = unhex(&vector["receipt_signature"]).try_into().unwrap();

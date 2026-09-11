@@ -155,8 +155,9 @@ impl Model {
 }
 
 fn iterations() -> usize {
-    // A full run is millions of operations; CI runs a slice of it by default and the whole
-    // thing on demand, because a gate nobody runs is not a gate.
+    // §8 asks for millions of sequences. That is what CI runs (POPCORN_GATE_ITERS=2000000,
+    // about four seconds in release); the default here is a fast slice so the gate stays
+    // usable in a local edit-test loop.
     std::env::var("POPCORN_GATE_ITERS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -213,7 +214,11 @@ fn staking_reserve_stays_solvent_under_random_sequences() {
             model.settle_conserves(&account);
             model.check("drain");
         }
-        assert_eq!(model.state.total_pending(), 0, "claims left after full exit");
+        assert_eq!(
+            model.state.total_pending(),
+            0,
+            "claims left after full exit"
+        );
         assert!(
             model.state.global.staking_reserved < PRECISION,
             "residue {} is larger than one accumulator step; that is not rounding",

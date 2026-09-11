@@ -17,8 +17,10 @@ primitive-types = { version = "=0.14.0", default-features = false }
 sha2 = { version = "=0.10.9", default-features = false }
 
 # Non-consensus dependencies: the API surface, storage and the timelock transport.
-age = "=0.12.1"
-axum = "=0.8.9"
+# `age` is deliberately absent: it enters through tlock_age, which pins it, and declaring a
+# second version here would only create a conflict to resolve. CONSENSUS-LOCK.md records the
+# version the lockfile actually resolves.
+axum = { version = "=0.8.9", features = ["ws"] }
 drand_core = "=0.0.19"
 redb = "=4.2.0"
 serde = { version = "=1.0.228", features = ["derive"] }

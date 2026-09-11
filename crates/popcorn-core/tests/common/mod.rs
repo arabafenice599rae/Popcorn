@@ -52,7 +52,9 @@ impl Actor {
 /// meaningful.
 pub fn fund(state: &mut State, id: &AccountId, amount: Amount) {
     let mut journal = Journal::new();
-    state.credit(id, &NATIVE_TOKEN, amount, &mut journal).unwrap();
+    state
+        .credit(id, &NATIVE_TOKEN, amount, &mut journal)
+        .unwrap();
     state.global_mut(&mut journal).native_emitted += amount;
 }
 

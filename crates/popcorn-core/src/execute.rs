@@ -565,8 +565,12 @@ fn execute_add_liquidity(
             // A half-empty pool has no defined price: it must be drained and restarted.
             return Err(FailReason::ReGenesisGuard);
         }
-        let (actual0, actual1) =
-            amm::actual_deposit(amount0_desired, amount1_desired, pair.reserve0, pair.reserve1)?;
+        let (actual0, actual1) = amm::actual_deposit(
+            amount0_desired,
+            amount1_desired,
+            pair.reserve0,
+            pair.reserve1,
+        )?;
         let minted = amm::subsequent_liquidity(
             actual0,
             actual1,
@@ -676,13 +680,27 @@ fn apply_hop(
     amount_out: Amount,
     journal: &mut Journal,
 ) -> Result<(), FailReason> {
-    let pair = state.pair_mut(pair_key, journal).ok_or(FailReason::UnknownPair)?;
+    let pair = state
+        .pair_mut(pair_key, journal)
+        .ok_or(FailReason::UnknownPair)?;
     if pair.token0 == *token_in {
-        pair.reserve0 = pair.reserve0.checked_add(amount_in).ok_or(FailReason::Overflow)?;
-        pair.reserve1 = pair.reserve1.checked_sub(amount_out).ok_or(FailReason::Overflow)?;
+        pair.reserve0 = pair
+            .reserve0
+            .checked_add(amount_in)
+            .ok_or(FailReason::Overflow)?;
+        pair.reserve1 = pair
+            .reserve1
+            .checked_sub(amount_out)
+            .ok_or(FailReason::Overflow)?;
     } else {
-        pair.reserve1 = pair.reserve1.checked_add(amount_in).ok_or(FailReason::Overflow)?;
-        pair.reserve0 = pair.reserve0.checked_sub(amount_out).ok_or(FailReason::Overflow)?;
+        pair.reserve1 = pair
+            .reserve1
+            .checked_add(amount_in)
+            .ok_or(FailReason::Overflow)?;
+        pair.reserve0 = pair
+            .reserve0
+            .checked_sub(amount_out)
+            .ok_or(FailReason::Overflow)?;
     }
     Ok(())
 }
@@ -781,7 +799,14 @@ fn execute_swap_exact_out(
         if hop_out_amount == 0 {
             return Err(FailReason::ZeroOutput);
         }
-        apply_hop(state, pair_key, hop_in, required[index], hop_out_amount, journal)?;
+        apply_hop(
+            state,
+            pair_key,
+            hop_in,
+            required[index],
+            hop_out_amount,
+            journal,
+        )?;
     }
 
     let final_token = hops.last().expect("path is non-empty").2;
@@ -805,7 +830,10 @@ fn settle_rewards(
 ) -> Result<Amount, FailReason> {
     let acc = state.global.acc_per_stake;
     let reserved = state.global.staking_reserved;
-    let account = state.account(signer).cloned().unwrap_or_else(Account::default);
+    let account = state
+        .account(signer)
+        .cloned()
+        .unwrap_or_else(Account::default);
     let payout = settle_amount(&account, acc, reserved)?;
 
     if payout > 0 {
@@ -831,9 +859,7 @@ fn execute_stake(
     settle_rewards(state, signer, journal)?;
 
     let balance = state.balance_of(signer, &NATIVE_TOKEN);
-    let required = amount
-        .checked_add(FEE_TX)
-        .ok_or(FailReason::Overflow)?;
+    let required = amount.checked_add(FEE_TX).ok_or(FailReason::Overflow)?;
     if balance < required {
         // Without this guard an account staking its whole balance could never pay the fee
         // for its own Unstake: the value would be locked forever.
@@ -849,7 +875,10 @@ fn execute_stake(
         let account = state
             .account_mut(signer, journal)
             .ok_or(FailReason::InsufficientBalance)?;
-        account.staked = account.staked.checked_add(amount).ok_or(FailReason::Overflow)?;
+        account.staked = account
+            .staked
+            .checked_add(amount)
+            .ok_or(FailReason::Overflow)?;
         account.paid_acc = acc;
     }
     let global = state.global_mut(journal);

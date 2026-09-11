@@ -14,7 +14,7 @@ use crate::constants::{
 use crate::crypto::{signing_hash, verify_signature};
 use crate::fees::tx_fee;
 use crate::state::State;
-use crate::types::{Action, AccountId, RejectReason, SignedTx};
+use crate::types::{AccountId, Action, RejectReason, SignedTx};
 
 /// Outcome of static validation.
 pub struct ValidationOutcome {
@@ -34,11 +34,7 @@ pub fn validate_batch(state: &State, txs: Vec<SignedTx>, round: u64) -> Validati
         let tx_id = tx.tx_id();
 
         // 2. signature, and with it the signer's identity
-        if !verify_signature(
-            &tx.signer_pubkey,
-            &signing_hash(&tx.payload),
-            &tx.signature,
-        ) {
+        if !verify_signature(&tx.signer_pubkey, &signing_hash(&tx.payload), &tx.signature) {
             rejected.push((tx_id, RejectReason::BadSignature));
             continue;
         }

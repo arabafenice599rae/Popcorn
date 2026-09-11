@@ -118,7 +118,10 @@ fn pubkey_materializes_on_execution_only() {
     let tx = alice.tx(1, 1, Action::ClaimRewards {});
     run_batch(&mut state, 1, vec![tx], foundation);
 
-    assert_eq!(state.account(&alice.id).unwrap().pubkey, Some(alice.pubkey()));
+    assert_eq!(
+        state.account(&alice.id).unwrap().pubkey,
+        Some(alice.pubkey())
+    );
 }
 
 /// Step 4's sub-order is pinned: `PubkeyMismatch` wins over `NonceExhausted` (§5.2).
@@ -221,7 +224,12 @@ fn stale_nonces_are_rejected_as_gaps() {
     let mut state = State::new();
     fund(&mut state, &alice.id, FEE_TX * 10);
 
-    run_batch(&mut state, 1, vec![alice.tx(1, 1, Action::ClaimRewards {})], foundation);
+    run_batch(
+        &mut state,
+        1,
+        vec![alice.tx(1, 1, Action::ClaimRewards {})],
+        foundation,
+    );
     assert_eq!(state.account(&alice.id).unwrap().nonce, 1);
 
     let replay = alice.tx(1, 2, Action::ClaimRewards {});
@@ -417,10 +425,16 @@ fn emission_without_stakers_mints_only_the_foundation_share() {
 
     let (staker_share, foundation_share) = emission::split(EMISSION_0);
     assert_eq!(state.global.native_emitted, foundation_share);
-    assert_eq!(state.balance_of(&foundation, &NATIVE_TOKEN), foundation_share);
+    assert_eq!(
+        state.balance_of(&foundation, &NATIVE_TOKEN),
+        foundation_share
+    );
     assert_eq!(state.global.staking_reserved, 0);
     assert_eq!(state.global.acc_per_stake, 0);
-    assert!(staker_share > 0, "the share exists nominally, it just is not minted");
+    assert!(
+        staker_share > 0,
+        "the share exists nominally, it just is not minted"
+    );
     assert!(state.monetary_invariant_holds(0));
 }
 
@@ -453,7 +467,10 @@ fn emission_with_stakers_splits_eighty_five_fifteen() {
     let pending = popcorn_core::execute::account_pending(&state, &alice.id);
     let reserved = state.global.staking_reserved;
     assert!(pending <= reserved);
-    assert!(reserved - pending < 1_000, "residue is larger than rounding");
+    assert!(
+        reserved - pending < 1_000,
+        "residue is larger than rounding"
+    );
 }
 
 /// Epoch boundaries are exact, and the 0-based index is what makes them so (§7.2).
@@ -463,7 +480,10 @@ fn halving_boundaries_are_exact() {
     assert_eq!(emission::emission_at(HALVING_INTERVAL), EMISSION_0);
     assert_eq!(emission::emission_at(HALVING_INTERVAL + 1), EMISSION_0 / 2);
     assert_eq!(emission::emission_at(2 * HALVING_INTERVAL), EMISSION_0 / 2);
-    assert_eq!(emission::emission_at(2 * HALVING_INTERVAL + 1), EMISSION_0 / 4);
+    assert_eq!(
+        emission::emission_at(2 * HALVING_INTERVAL + 1),
+        EMISSION_0 / 4
+    );
     // Genesis mints nothing.
     assert_eq!(emission::emission_at(0), 0);
 

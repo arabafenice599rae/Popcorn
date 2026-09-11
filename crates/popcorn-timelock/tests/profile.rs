@@ -14,10 +14,8 @@ const CHAIN_HEX: &str = "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba946
 
 /// A minimal conforming header, with a payload byte after it.
 fn conforming(round: u64) -> Vec<u8> {
-    let mut blob = format!(
-        "age-encryption.org/v1\n-> tlock {round} {CHAIN_HEX}\nAAAA\n--- AAAA\n"
-    )
-    .into_bytes();
+    let mut blob = format!("age-encryption.org/v1\n-> tlock {round} {CHAIN_HEX}\nAAAA\n--- AAAA\n")
+        .into_bytes();
     blob.push(0x00);
     blob
 }
@@ -168,7 +166,10 @@ fn oversized_headers_are_refused() {
 /// Truncated and empty inputs are `unusable`, not panics: these bytes come from the wire.
 #[test]
 fn truncated_input_is_refused_without_panicking() {
-    assert_eq!(profile::validate(b"", 1000, &CHAIN), Err(ProfileError::Empty));
+    assert_eq!(
+        profile::validate(b"", 1000, &CHAIN),
+        Err(ProfileError::Empty)
+    );
     assert_eq!(
         profile::validate(b"age-encryption.org/v1\n", 1000, &CHAIN),
         Err(ProfileError::MissingMac)

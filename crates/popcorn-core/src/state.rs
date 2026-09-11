@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::constants::NATIVE_TOKEN;
 use crate::types::{Account, AccountId, Amount, Global, Htlc, Pair, Token, TokenId};
@@ -25,13 +25,31 @@ const TAG_GLOBAL: u8 = 0x05;
 /// The full consensus state.
 ///
 /// `hashlock_index` is deliberately not part of it: see [`State::hashlock_index`].
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+///
+/// The Borsh derives here are for storage checkpoints only. The state root is computed by
+/// [`State::state_root`], never by hashing this encoding: the traversal in §5.4 is the
+/// normative one, and tying it to a derive would make a field reordering a silent consensus
+/// change.
+#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct State {
     pub accounts: BTreeMap<AccountId, Account>,
     pub tokens: BTreeMap<TokenId, Token>,
     pub pairs: BTreeMap<[u8; 32], Pair>,
     pub htlcs: BTreeMap<[u8; 32], Htlc>,
     pub global: Global,
+}
+
+/// Why a balance mutation could not be applied.
+///
+/// Deliberately narrow: the state layer knows about arithmetic and sufficiency, and nothing
+/// about why an action wanted the money. Mapping these onto the `FailReason` the block
+/// records is the executor's job (§13.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BalanceError {
+    /// The account does not hold enough of this token.
+    Insufficient,
+    /// The credit would exceed `u128`. Unreachable under finite supply, never silent.
+    Overflow,
 }
 
 /// Undo record for one mutation, used to roll a failed transaction back (§5.2).
@@ -215,13 +233,13 @@ impl State {
         token: &TokenId,
         amount: Amount,
         journal: &mut Journal,
-    ) -> Result<(), ()> {
+    ) -> Result<(), BalanceError> {
         if amount == 0 {
             return Ok(());
         }
         let account = self.account_entry(id, journal);
         let entry = account.balances.entry(*token).or_insert(0);
-        *entry = entry.checked_add(amount).ok_or(())?;
+        *entry = entry.checked_add(amount).ok_or(BalanceError::Overflow)?;
         Ok(())
     }
 
@@ -234,16 +252,16 @@ impl State {
         token: &TokenId,
         amount: Amount,
         journal: &mut Journal,
-    ) -> Result<(), ()> {
+    ) -> Result<(), BalanceError> {
         if amount == 0 {
             return Ok(());
         }
         let Some(account) = self.account_mut(id, journal) else {
-            return Err(());
+            return Err(BalanceError::Insufficient);
         };
         let balance = account.balances.get(token).copied().unwrap_or(0);
         if balance < amount {
-            return Err(());
+            return Err(BalanceError::Insufficient);
         }
         let remaining = balance - amount;
         if remaining == 0 {
@@ -260,10 +278,13 @@ impl State {
         id: &AccountId,
         amount: Amount,
         journal: &mut Journal,
-    ) -> Result<(), ()> {
+    ) -> Result<(), BalanceError> {
         self.debit(id, &NATIVE_TOKEN, amount, journal)?;
         let global = self.global_mut(journal);
-        global.native_burned = global.native_burned.checked_add(amount).ok_or(())?;
+        global.native_burned = global
+            .native_burned
+            .checked_add(amount)
+            .ok_or(BalanceError::Overflow)?;
         Ok(())
     }
 

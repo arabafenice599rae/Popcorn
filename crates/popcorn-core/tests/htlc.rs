@@ -110,11 +110,27 @@ fn claim_and_refund_windows_do_not_overlap() {
     run_batch(
         &mut state,
         1,
-        vec![alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 500_000, hashlock: sha256(&secret), expiry_round: expiry })],
+        vec![alice.tx(
+            1,
+            1,
+            Action::HtlcLock {
+                to: bob.id,
+                token: NATIVE_TOKEN,
+                amount: 500_000,
+                hashlock: sha256(&secret),
+                expiry_round: expiry,
+            },
+        )],
         foundation,
     );
 
-    let refund = alice.tx(2, expiry, Action::HtlcRefund { htlc_id: htlc_id(&alice.id, 1) });
+    let refund = alice.tx(
+        2,
+        expiry,
+        Action::HtlcRefund {
+            htlc_id: htlc_id(&alice.id, 1),
+        },
+    );
     let id = refund.tx_id();
     let output = run_batch(&mut state, expiry, vec![refund], foundation);
     assert_eq!(
@@ -132,7 +148,13 @@ fn claim_and_refund_windows_do_not_overlap() {
         Some(ExecStatus::Failed(FailReason::HtlcExpired))
     );
 
-    let refund = alice.tx(3, expiry + 2, Action::HtlcRefund { htlc_id: htlc_id(&alice.id, 1) });
+    let refund = alice.tx(
+        3,
+        expiry + 2,
+        Action::HtlcRefund {
+            htlc_id: htlc_id(&alice.id, 1),
+        },
+    );
     let id = refund.tx_id();
     let output = run_batch(&mut state, expiry + 2, vec![refund], foundation);
     assert_eq!(status_of(&output, &id), Some(ExecStatus::Ok));
@@ -165,7 +187,17 @@ fn a_wrong_preimage_does_not_open_the_lock() {
     run_batch(
         &mut state,
         1,
-        vec![alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 500_000, hashlock: sha256(&preimage(7)), expiry_round: 100 })],
+        vec![alice.tx(
+            1,
+            1,
+            Action::HtlcLock {
+                to: bob.id,
+                token: NATIVE_TOKEN,
+                amount: 500_000,
+                hashlock: sha256(&preimage(7)),
+                expiry_round: 100,
+            },
+        )],
         foundation,
     );
 
@@ -201,7 +233,17 @@ fn publishing_the_preimage_settles_the_lock() {
     run_batch(
         &mut state,
         1,
-        vec![alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 500_000, hashlock: sha256(&secret), expiry_round: 100 })],
+        vec![alice.tx(
+            1,
+            1,
+            Action::HtlcLock {
+                to: bob.id,
+                token: NATIVE_TOKEN,
+                amount: 500_000,
+                hashlock: sha256(&secret),
+                expiry_round: 100,
+            },
+        )],
         foundation,
     );
 
@@ -235,7 +277,17 @@ fn only_thirty_two_byte_publishes_can_settle() {
     run_batch(
         &mut state,
         1,
-        vec![alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 500_000, hashlock: sha256(&secret), expiry_round: 100 })],
+        vec![alice.tx(
+            1,
+            1,
+            Action::HtlcLock {
+                to: bob.id,
+                token: NATIVE_TOKEN,
+                amount: 500_000,
+                hashlock: sha256(&secret),
+                expiry_round: 100,
+            },
+        )],
         foundation,
     );
 
@@ -244,10 +296,21 @@ fn only_thirty_two_byte_publishes_can_settle() {
     run_batch(
         &mut state,
         2,
-        vec![carol.tx(1, 2, Action::Publish { topic: [0u8; 32], data: padded })],
+        vec![carol.tx(
+            1,
+            2,
+            Action::Publish {
+                topic: [0u8; 32],
+                data: padded,
+            },
+        )],
         foundation,
     );
-    assert_eq!(state.htlcs.len(), 1, "a 33-byte publish must not settle anything");
+    assert_eq!(
+        state.htlcs.len(),
+        1,
+        "a 33-byte publish must not settle anything"
+    );
 }
 
 /// If a claim and a matching publish land in the same batch, the claim wins and the publish
@@ -267,12 +330,36 @@ fn a_claim_in_the_same_batch_wins_over_the_publish() {
     run_batch(
         &mut state,
         1,
-        vec![alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 500_000, hashlock: sha256(&secret), expiry_round: 100 })],
+        vec![alice.tx(
+            1,
+            1,
+            Action::HtlcLock {
+                to: bob.id,
+                token: NATIVE_TOKEN,
+                amount: 500_000,
+                hashlock: sha256(&secret),
+                expiry_round: 100,
+            },
+        )],
         foundation,
     );
 
-    let claim = bob.tx(1, 2, Action::HtlcClaim { htlc_id: htlc_id(&alice.id, 1), preimage: secret });
-    let publish = carol.tx(1, 2, Action::Publish { topic: [0u8; 32], data: secret.to_vec() });
+    let claim = bob.tx(
+        1,
+        2,
+        Action::HtlcClaim {
+            htlc_id: htlc_id(&alice.id, 1),
+            preimage: secret,
+        },
+    );
+    let publish = carol.tx(
+        1,
+        2,
+        Action::Publish {
+            topic: [0u8; 32],
+            data: secret.to_vec(),
+        },
+    );
     let claim_id = claim.tx_id();
     let publish_id = publish.tx_id();
 
@@ -281,7 +368,10 @@ fn a_claim_in_the_same_batch_wins_over_the_publish() {
     // Both executed and both paid; the claim settled, the publish found nothing to do.
     assert_eq!(status_of(&output, &claim_id), Some(ExecStatus::Ok));
     assert_eq!(status_of(&output, &publish_id), Some(ExecStatus::Ok));
-    assert_eq!(state.balance_of(&bob.id, &NATIVE_TOKEN), 500_000 + FEE_TX * 9);
+    assert_eq!(
+        state.balance_of(&bob.id, &NATIVE_TOKEN),
+        500_000 + FEE_TX * 9
+    );
     assert!(state.htlcs.is_empty());
     assert!(state.monetary_invariant_holds(0));
 }
@@ -297,8 +387,28 @@ fn a_hashlock_cannot_be_locked_twice() {
     fund(&mut state, &alice.id, FEE_TX * 10 + 1_000_000);
 
     let hashlock = sha256(&preimage(7));
-    let first = alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 100_000, hashlock, expiry_round: 100 });
-    let second = alice.tx(2, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 100_000, hashlock, expiry_round: 100 });
+    let first = alice.tx(
+        1,
+        1,
+        Action::HtlcLock {
+            to: bob.id,
+            token: NATIVE_TOKEN,
+            amount: 100_000,
+            hashlock,
+            expiry_round: 100,
+        },
+    );
+    let second = alice.tx(
+        2,
+        1,
+        Action::HtlcLock {
+            to: bob.id,
+            token: NATIVE_TOKEN,
+            amount: 100_000,
+            hashlock,
+            expiry_round: 100,
+        },
+    );
     let second_id = second.tx_id();
 
     let output = run_batch(&mut state, 1, vec![first, second], foundation);
@@ -370,11 +480,27 @@ fn anyone_can_refund_an_expired_lock() {
     run_batch(
         &mut state,
         1,
-        vec![alice.tx(1, 1, Action::HtlcLock { to: bob.id, token: NATIVE_TOKEN, amount: 500_000, hashlock: sha256(&preimage(7)), expiry_round: 3 })],
+        vec![alice.tx(
+            1,
+            1,
+            Action::HtlcLock {
+                to: bob.id,
+                token: NATIVE_TOKEN,
+                amount: 500_000,
+                hashlock: sha256(&preimage(7)),
+                expiry_round: 3,
+            },
+        )],
         foundation,
     );
 
-    let refund = stranger.tx(1, 4, Action::HtlcRefund { htlc_id: htlc_id(&alice.id, 1) });
+    let refund = stranger.tx(
+        1,
+        4,
+        Action::HtlcRefund {
+            htlc_id: htlc_id(&alice.id, 1),
+        },
+    );
     let id = refund.tx_id();
     let output = run_batch(&mut state, 4, vec![refund], foundation);
 
