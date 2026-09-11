@@ -369,14 +369,42 @@ impl State {
             .sum()
     }
 
-    /// The four-bucket monetary invariant of §5.5, as an exact equality.
+    /// Total native units held as AMM reserves.
     ///
-    /// Every native unit is in exactly one of: a liquid balance, stake, HTLC escrow, or the
-    /// staking liability. Replay checks this at every block.
+    /// A pair may have `NATIVE_TOKEN` on either side (§4.1), and the units sitting in that
+    /// reserve left somebody's balance to get there. They are owed to LP holders, but they
+    /// are not in any balance, so they are their own bucket in §5.5.
+    pub fn total_native_in_pools(&self) -> Amount {
+        self.pairs
+            .values()
+            .map(|pair| {
+                let mut total = 0;
+                if pair.token0 == NATIVE_TOKEN {
+                    total += pair.reserve0;
+                }
+                if pair.token1 == NATIVE_TOKEN {
+                    total += pair.reserve1;
+                }
+                total
+            })
+            .sum()
+    }
+
+    /// The five-bucket monetary invariant of §5.5, as an exact equality.
+    ///
+    /// Every native unit is in exactly one of: a liquid balance, stake, HTLC escrow, an AMM
+    /// reserve, or the staking liability. Replay checks this at every block.
+    ///
+    /// The AMM bucket is not decoration. An earlier version of the specification listed four
+    /// buckets and omitted pool reserves, which made the invariant false for any chain where
+    /// somebody had provided native liquidity — and §10 checks it at every block, so a
+    /// perfectly honest chain would have failed verification. The independent reference
+    /// executor found it.
     pub fn monetary_invariant_holds(&self, genesis_supply: Amount) -> bool {
         let left = self.total_native_balances()
             + self.total_staked_sum()
             + self.total_native_in_htlcs()
+            + self.total_native_in_pools()
             + self.global.staking_reserved;
         let right = genesis_supply + self.global.native_emitted - self.global.native_burned;
         left == right

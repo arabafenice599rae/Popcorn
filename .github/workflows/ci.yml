@@ -46,6 +46,49 @@ jobs:
         env:
           POPCORN_GATE_ITERS: "2000000"
 
+  reference:
+    name: independent reference executor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install blake3
+
+      # §10 asks for a second implementation as a differential. It found the missing bucket
+      # in the monetary invariant; regenerating the scenarios here keeps it able to find the
+      # next one, rather than only re-checking a frozen file.
+      - name: Regenerate scenarios and replay them
+        run: |
+          cargo run --release -p popcorn-core --example differential -- 400 vectors/differential.json
+          python3 reference/differential.py vectors/differential.json
+
+      - name: Borderline signature semantics (§3.1)
+        run: |
+          cargo run --release -p popcorn-core --example signature_vectors -- vectors/signatures.json
+          python3 reference/signatures.py vectors/signatures.json
+
+  interop:
+    name: cross-language gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # Rust, Go and JavaScript must read each other's blobs and agree on every rejection
+      # case (§2.4, §3.6). No network: the gate carries its own beacon signature.
+      - name: Run the cross-language gate
+        run: ./interop/run-gate.sh
+
   offline:
     name: no network needed
     runs-on: ubuntu-latest

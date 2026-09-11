@@ -682,15 +682,28 @@ h.update([0x05]); h.update(LE32(0)); h.update(LE32(len(borsh(global)))); h.updat
 
 No inference is required from a non-Rust implementer.
 
-### 5.5 Four-bucket monetary invariant (exact equality by construction)
+### 5.5 Five-bucket monetary invariant (exact equality by construction)
 
 ```
-Σ balances[NATIVE] + Σ staked + Σ htlcs[token == NATIVE].amount + staking_reserved
+  Σ balances[NATIVE]
++ Σ staked
++ Σ htlcs[token == NATIVE].amount
++ Σ pairs[NATIVE side].reserve
++ staking_reserved
     = GENESIS_SUPPLY + native_emitted − native_burned
 ```
 
-Every native unit lives in **exactly one** of four places: liquid balance, stake, HTLC escrow,
-or staking liability (`staking_reserved`). No unit "lives inside a formula".
+Every native unit lives in **exactly one** of five places: liquid balance, stake, HTLC escrow,
+AMM reserve, or staking liability (`staking_reserved`). No unit "lives inside a formula".
+
+> **The AMM bucket was missing, and this is the correction (v0.9.3-en).** Earlier text listed
+> four buckets and omitted pool reserves. A pair may hold `NATIVE_TOKEN` on either side
+> (§4.1), and those units left somebody's balance to get there — so the moment anyone provided
+> native liquidity, the stated equality became false. Since §10 checks the invariant at *every
+> block*, a perfectly honest chain would have failed its own verification as soon as a native
+> pool was funded. The independent reference executor of §10 is what surfaced it: both
+> implementations agreed with each other and with the old text, and both reported the
+> invariant broken — the specification was wrong, not the code.
 
 The older invariant stated with `Σ pending` was **mathematically false** (double flooring over
 different bases: `Σ⌊xᵢ⌋ ≤ ⌊Σxᵢ⌋`) and has been replaced.
@@ -699,6 +712,9 @@ determining how much a settle *transfers* from `staking_reserved` to the balance
 `staking_reserved ≥ Σ pending(a) ≥ 0` holds **by construction** (proof in §8), and the
 difference is the rounding residue: a protocol liability, not attributable without O(N) work,
 never burned and never credited to anyone.
+
+Pool reserves are a liability of the pair to its LP holders in exactly the same sense, and are
+accounted the same way: present in the equality, owned by nobody's balance.
 
 `native_emitted` means exactly: nominal units created by the protocol. `staking_reserved`:
 units created as the staker share and not yet moved into a balance.
@@ -1045,7 +1061,8 @@ it has the right sign.
 emission/stake/unstake/claim sequences with arbitrary distributions and extreme `PRECISION`
 values, checking **after every single operation**:
 
-1. the four-bucket invariant (exact equality);
+1. the monetary invariant (exact equality; the staking gate exercises it without pools, and
+   the differential scenarios of §10 exercise it with them);
 2. total conservation at every settle;
 3. **`staking_reserved ≥ Σ pending ≥ 0`** — assertion (3) is the one an earlier gate lacked,
    and the one that would have caught the earlier underflow bug.

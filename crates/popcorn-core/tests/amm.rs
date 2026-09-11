@@ -546,3 +546,73 @@ fn re_genesis_guard_blocks_refilling_a_stranded_pair() {
         Err(FailReason::LiquidityTooSmall)
     );
 }
+
+/// The test that should have existed before the reference executor found this.
+///
+/// A pair may hold `NATIVE_TOKEN` on either side, and those units left somebody's balance to
+/// get there. Every AMM action that moves native — funding a pool, swapping into it, swapping
+/// out of it, withdrawing — must leave the monetary invariant of §5.5 exactly true. An
+/// earlier version of the invariant omitted the pool bucket, and so every one of these
+/// operations silently broke it; §10 checks the invariant at every block, so an honest chain
+/// would have failed its own verification.
+#[test]
+fn amm_activity_preserves_the_monetary_invariant() {
+    let (mut state, alice, foundation, token, pair) = pooled_state(30);
+    assert!(
+        state.monetary_invariant_holds(0),
+        "funding a native pool broke the invariant"
+    );
+    assert!(
+        state.total_native_in_pools() > 0,
+        "this test is pointless unless the pool actually holds native"
+    );
+
+    // Swap in, swap out, add and remove: each one moves native across the pool boundary.
+    let lp = lp_token_id(&pair);
+    let actions = vec![
+        Action::SwapExactIn {
+            path: vec![pair],
+            token_in: NATIVE_TOKEN,
+            amount_in: 7_000_000,
+            min_amount_out: 1,
+        },
+        Action::SwapExactOut {
+            path: vec![pair],
+            token_in: token,
+            amount_out: 3_000_000,
+            max_amount_in: u128::MAX / 2,
+        },
+        Action::AddLiquidity {
+            pair,
+            amount0_desired: 5_000_000,
+            amount1_desired: 5_000_000,
+            amount0_min: 0,
+            amount1_min: 0,
+        },
+        Action::RemoveLiquidity {
+            pair,
+            lp_amount: 1_000,
+            amount0_min: 0,
+            amount1_min: 0,
+        },
+    ];
+
+    for (index, action) in actions.into_iter().enumerate() {
+        let height = 2 + index as u64;
+        let nonce = 4 + index as u64;
+        let tx = alice.tx(nonce, height, action);
+        let id = tx.tx_id();
+        let output = run_batch(&mut state, height, vec![tx], foundation);
+        assert_eq!(
+            status_of(&output, &id),
+            Some(ExecStatus::Ok),
+            "action {index} did not execute"
+        );
+        assert!(
+            state.monetary_invariant_holds(0),
+            "the invariant broke after action {index}"
+        );
+    }
+
+    assert!(state.balance_of(&alice.id, &lp) > 0);
+}

@@ -68,12 +68,36 @@ for crate in borsh ed25519-dalek primitive-types blake3 sha2 tlock tlock_age dra
 done
 
 # ---------------------------------------------------------------------------------------
-# 4. The committed vector is present: §10 makes it a gate, not a convenience
+# 4. The committed vectors are present: §10 makes them gates, not conveniences
 # ---------------------------------------------------------------------------------------
-if [ -f vectors/end_to_end.json ]; then
-    pass "end-to-end vector is committed"
+for vector in vectors/end_to_end.json vectors/differential.json vectors/signatures.json               vectors/profile/expected.json; do
+    if [ -f "$vector" ]; then
+        pass "$(basename "$vector") is committed"
+    else
+        fail "$vector is missing (SPEC.md §3.1, §3.6, §10)"
+    fi
+done
+
+# ---------------------------------------------------------------------------------------
+# 5. The independent reference executor agrees with the node
+# ---------------------------------------------------------------------------------------
+# Two implementations of one specification that diverge mean a bug in the spec or a bug in
+# the code — which is the whole point of keeping a second one (§10).
+if python3 -c "import blake3" >/dev/null 2>&1; then
+    if python3 reference/signatures.py vectors/signatures.json >/dev/null 2>&1; then
+        pass "borderline signature semantics agree (§3.1)"
+    else
+        fail "the reference verifier disagrees on pinned signature semantics"
+        python3 reference/signatures.py vectors/signatures.json >&2
+    fi
+    if python3 reference/differential.py vectors/differential.json >/dev/null 2>&1; then
+        pass "reference executor agrees on every differential scenario (§10)"
+    else
+        fail "the reference executor diverges from the node"
+        python3 reference/differential.py vectors/differential.json >&2
+    fi
 else
-    fail "vectors/end_to_end.json is missing (SPEC.md §10)"
+    echo "  skipped: the reference executor needs \`pip install blake3\`" >&2
 fi
 
 exit $status

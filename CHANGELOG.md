@@ -18,8 +18,17 @@ After genesis, anything listed as consensus-breaking in §13 is effectively a ne
 ## v0.9.3-en — English edition, reference implementation
 
 The specification was translated to English and restructured; normative content is unchanged
-except where implementation forced a decision, which is recorded in §14. Two of those are
+except where implementation forced a decision, which is recorded in §14. Three of those are
 corrections rather than clarifications:
+
+- **§5.5, the monetary invariant was missing a bucket.** The invariant listed four places a
+  native unit can live and omitted **AMM pool reserves**. A pair may hold `NATIVE_TOKEN` on
+  either side, and those units leave a balance to get there — so the equality became false the
+  moment anyone provided native liquidity. Since §10 checks it at *every block*, an honest
+  chain would have failed its own verification as soon as a native pool was funded. Found by
+  the independent reference executor of §10: both implementations agreed with each other and
+  with the old text, and both reported the invariant broken, which is what a spec bug looks
+  like from the inside. The invariant is now five buckets.
 
 - **§3.6, grease stanzas.** "Exactly one recipient stanza" was unimplementable against the
   pinned `age` version, which appends a randomized `-grease` stanza to every header it writes.
