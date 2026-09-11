@@ -114,24 +114,28 @@ popcorn verify --data ./data
 
 ## Consensus gates
 
-These run in `cargo test` and are the conditions under which genesis may be produced at all:
+Every gate the specification makes a precondition for genesis now exists and passes.
 
-- **Staking property test** (§8) — random emission/stake/unstake/claim sequences checking,
-  after *every* operation: the four-bucket monetary invariant as an exact equality, total
-  conservation at each settle, and `staking_reserved ≥ Σ pending ≥ 0`.
-- **Canonicity test** (§2.3) — same logical state, different insertion orders → identical
-  bytes → identical `state_root`.
-- **Consensus-grade vectors** (§10) — [`vectors/end_to_end.json`](vectors/end_to_end.json) is a
-  real fixture: a transaction encrypted toward drand quicknet round 1000, that round's actual
-  BLS signature, and every derived value through `state_root`, `block_hash` and the receipt. It
-  replays with no network at all, so an independent implementation can check itself against it.
-- **Profile acceptance** (§3.6) — every prefix and every single-byte corruption of a valid blob
-  must be refused rather than crash, and the rejection cases are pinned alongside the round
-  trip: two implementations that disagree about which blobs are `unusable` disagree about which
-  transactions exist.
-- **Cross-language blob vectors** (§2.4) — *still to do*: encrypt/decrypt across Rust
-  `tlock_age`, tlock-js and drand/tlock Go, byte-identical. The Rust half is in place; the Go
-  and JS halves are not, and until they are, the cross-language claim is unproven.
+| Gate | What it proves | How to run it |
+|---|---|---|
+| **Staking property test** (§8) | the monetary invariant as an exact equality, conservation at each settle, and `staking_reserved ≥ Σ pending ≥ 0`, after *every* operation across millions of random sequences | `cargo test -p popcorn-core --release --test staking_gate` |
+| **Canonicity** (§2.3) | same logical state, different insertion orders → identical bytes → identical `state_root` | `cargo test -p popcorn-core --test consensus` |
+| **Independent reference executor** (§10) | a second implementation, written in Python from the spec, agrees with the node on execution order, every result, every rejection, all five roots and the invariant — across 400 random scenarios | `python3 reference/differential.py vectors/differential.json` |
+| **Borderline signatures** (§3.1) | the pinned `verify_strict` semantics, checked against a pure-Python verifier on 26 edge cases: small-order points, `s` at and above the group order, non-canonical encodings | `python3 reference/signatures.py vectors/signatures.json` |
+| **Cross-language blobs** (§2.4) | Rust, Go and JavaScript read each other's ciphertexts in all nine directions, and return identical verdicts on 19 shared rejection vectors | `./interop/run-gate.sh` |
+| **Consensus-grade vector** (§10) | a real drand round, a real transaction, every derived value through `state_root` and the receipt — replayable with no network | `cargo test -p popcorn-timelock --test vectors` |
+| **Blind-collection worst case** (§11) | what a flood actually costs, measured rather than assumed | `cargo run --release -p popcorn-timelock --example dos_benchmark -- 10000` |
+| **Structural rules** | no unordered collections near a commitment, exact `=` pinning, the naming rule | `./ci/consensus-gates.sh` |
+
+Two of these found real problems, which is the only reason to have them:
+
+- The **reference executor** found that the monetary invariant of §5.5 was missing a bucket —
+  it omitted AMM pool reserves, so an honest chain would have failed its own verification as
+  soon as anyone funded a native pool. Now five buckets, with a regression test.
+- The **worst-case benchmark** found that the CPU worst case is not the obvious one. Garbage
+  costs 0.1% of a round; blobs that look legitimate cost ~2.5 ms each, so
+  `MAX_TX_PER_BATCH = 10_000` needs roughly **9 cores** to clear inside a 3 s round. An
+  attacker pays nothing for a blob that costs the node exactly as much as an honest one.
 
 ## Operational obligations (outside consensus)
 

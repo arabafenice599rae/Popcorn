@@ -90,15 +90,62 @@ impl Producer {
     /// `unusable` is derived here, never asserted: a failed timelock, a failed AEAD and a
     /// payload that decrypts but does not decode are one outcome, because in all three cases
     /// no transaction — and therefore no `tx_id` — exists (§5.1).
+    ///
+    /// Decryption runs across cores, and that is safe precisely because the result does not
+    /// depend on the order it happens in: the executor sorts valid transactions by `tx_id`
+    /// before the shuffle (§3.7), and chunks are merged in their original order, so the
+    /// output is identical whatever the thread scheduler does. Parallelism here is an
+    /// availability measure, outside consensus (§13.3) — and a needed one: the benchmark in
+    /// `popcorn-timelock/examples/dos_benchmark.rs` puts a full round of well-formed-looking
+    /// blobs at roughly 2.5 ms each, which a single core cannot clear inside a 3 s round.
     fn decrypt_collection(
         &self,
         collected: &[([u8; 32], Vec<u8>)],
         beacon: &Beacon,
     ) -> (Vec<SignedTx>, Vec<[u8; 32]>) {
+        let workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        // Below this, threads cost more than they save.
+        if workers <= 1 || collected.len() < 16 {
+            return Self::decrypt_chunk(self.timelock.as_ref(), collected, beacon);
+        }
+
+        let chunk_size = collected.len().div_ceil(workers);
+        let provider = self.timelock.as_ref();
+        let chunks: Vec<&[([u8; 32], Vec<u8>)]> = collected.chunks(chunk_size).collect();
+
+        let parts: Vec<(Vec<SignedTx>, Vec<[u8; 32]>)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunks
+                .into_iter()
+                .map(|chunk| scope.spawn(move || Self::decrypt_chunk(provider, chunk, beacon)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("decryption worker"))
+                .collect()
+        });
+
         let mut txs = Vec::new();
         let mut unusable = Vec::new();
-        for (hash, blob) in collected {
-            match popcorn_timelock::decrypt_transaction(self.timelock.as_ref(), blob, beacon) {
+        for (part_txs, part_unusable) in parts {
+            txs.extend(part_txs);
+            unusable.extend(part_unusable);
+        }
+        unusable.sort_unstable();
+        (txs, unusable)
+    }
+
+    fn decrypt_chunk(
+        provider: &dyn TimelockProvider,
+        chunk: &[([u8; 32], Vec<u8>)],
+        beacon: &Beacon,
+    ) -> (Vec<SignedTx>, Vec<[u8; 32]>) {
+        let mut txs = Vec::new();
+        let mut unusable = Vec::new();
+        for (hash, blob) in chunk {
+            match popcorn_timelock::decrypt_transaction(provider, blob, beacon) {
                 Some(tx) => txs.push(tx),
                 None => unusable.push(*hash),
             }

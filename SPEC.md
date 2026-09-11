@@ -1226,9 +1226,41 @@ defended at the wire level without touching the protocol:
 - `MAX_TLOCK_DECRYPT_WORK_PER_ROUND` (CPU budget with declared degradation: the chain waits,
   it never skips manifested blobs)
 
-**Mandatory pre-genesis worst-case benchmark**: 10k valid ciphertexts, 10k invalid tlock
-ciphertexts, 10k garbage blobs — the CPU worst case may not be the obvious one. This is a
-*node availability* risk, not a ledger correctness risk: declared and kept separate.
+**Mandatory pre-genesis worst-case benchmark — measured (v0.9.3-en).** The suspicion this
+paragraph used to record ("the CPU worst case may not be the obvious one") was correct, and
+the direction is the uncomfortable one. Measured with
+`popcorn-timelock/examples/dos_benchmark.rs`, 10,000 blobs per population, one core of a
+2.8 GHz Xeon:
+
+| Population | Per blob | One round of 10,000 |
+|---|---|---|
+| Garbage | ~0 ms | **0.1%** of a round |
+| Corrupt tlock stanza | 0.08 ms | 26% |
+| Headers padded to the 1 KiB profile limit | 0.70 ms | 235% |
+| Valid ciphertexts | 2.52 ms | 839% |
+| Corrupt payload (tlock unwraps, AEAD fails) | 2.51 ms | 837% |
+| Decrypts but does not decode | 2.55 ms | **850%** |
+
+Garbage is free to refuse — the profile rejects it on the first bytes. What costs is anything
+**well-formed enough to reach the timelock unwrap**, because the pairing work happens before
+the AEAD or the decoder can object.
+
+Two consequences, both declared rather than buried:
+
+1. **`MAX_TX_PER_BATCH = 10_000` is not reachable at 3 s per round on one core.** A full batch
+   of the worst population takes 25.5 s, i.e. 8.5 round-times. Decryption parallelises cleanly
+   (the derived set does not depend on the order it is computed in, so it is outside consensus
+   under §13.3): across 4 cores the same batch takes 6.4 s, still 2.1 round-times, and roughly
+   **9 cores** are needed to clear 10,000 inside one round. An operator either provisions for
+   that, or sets `MAX_TLOCK_DECRYPT_WORK_PER_ROUND` to a ceiling they can actually meet. The
+   declared degradation then applies: the chain **waits**, and never skips a manifested blob.
+2. **The attacker's cost is not the node's cost.** A blob with a corrupt payload costs the node
+   2.51 ms — the same as an honest one — and costs its sender nothing: no fee, no valid
+   signature, no key, no account. That asymmetry is the attack, and it is why the defences of
+   this section are wire-level admission limits rather than anything the protocol can charge
+   for.
+
+This is a *node availability* risk, not a ledger correctness risk: declared and kept separate.
 
 Monetary values (GENESIS, EMISSION_0, HALVING, split) are proposals, tunable before genesis;
 after genesis they are **immutable**.

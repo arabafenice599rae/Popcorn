@@ -297,6 +297,18 @@ fn scenario(seed: u64) -> Value {
         "the generated pre-state must satisfy the invariant"
     );
 
+    let fixtures = Fixtures {
+        ids: ids.clone(),
+        tokens: tokens.clone(),
+        pairs: pairs.clone(),
+        open: htlc.clone(),
+        expired: expired_htlc.clone(),
+        expired_preimage,
+        open_preimage: preimage,
+        stranded,
+        lopsided,
+    };
+
     let height = 1 + rng.below(20);
     let round = 1_000 + height;
     let pre = state_json(&state);
@@ -343,20 +355,7 @@ fn scenario(seed: u64) -> Value {
         // Round choice: usually right, occasionally wrong, so WrongRound is reachable.
         let target_round = if rng.below(10) == 0 { round + 1 } else { round };
 
-        let action = random_action(
-            &mut rng,
-            &ids,
-            &tokens,
-            &pairs,
-            &htlc,
-            &expired_htlc,
-            &preimage,
-            round,
-            stranded,
-            &expired_preimage,
-            htlc.hashlock,
-            lopsided,
-        );
+        let action = random_action(&mut rng, &fixtures, round);
         let payload = TxPayload {
             nonce,
             target_round,
@@ -425,36 +424,17 @@ fn status_name(status: &ExecStatus) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn random_action(
-    rng: &mut Rng,
-    ids: &[AccountId],
-    tokens: &[[u8; 32]],
-    pairs: &[[u8; 32]],
-    htlc: &Htlc,
-    expired: &Htlc,
-    preimage: &[u8; 32],
-    round: u64,
-    stranded: [u8; 32],
-    expired_preimage: &[u8; 32],
-    open_hashlock: [u8; 32],
-    lopsided: [u8; 32],
-) -> Action {
+fn random_action(rng: &mut Rng, f: &Fixtures, round: u64) -> Action {
     // One draw in six is a deliberately invalid action: the failure paths are exactly the
     // part of the specification that never gets exercised by accident.
     if rng.below(6) == 0 {
-        return hostile_action(
-            rng,
-            ids,
-            tokens,
-            pairs,
-            expired,
-            round,
-            stranded,
-            expired_preimage,
-            open_hashlock,
-            lopsided,
-        );
+        return hostile_action(rng, f, round);
     }
+    let ids = &f.ids;
+    let tokens = &f.tokens;
+    let pairs = &f.pairs;
+    let htlc = &f.open;
+    let preimage = &f.open_preimage;
     let pick = rng.below(14);
     let recipient = ids[rng.below(ids.len() as u64) as usize];
     let token = if rng.below(2) == 0 {
@@ -545,19 +525,33 @@ fn random_action(
     }
 }
 
-/// Actions chosen to reach the failure and rejection paths on purpose.
-fn hostile_action(
-    rng: &mut Rng,
-    ids: &[AccountId],
-    tokens: &[[u8; 32]],
-    pairs: &[[u8; 32]],
-    expired: &Htlc,
-    round: u64,
+/// The fixtures a scenario's actions draw on.
+struct Fixtures {
+    ids: Vec<AccountId>,
+    tokens: Vec<[u8; 32]>,
+    pairs: Vec<[u8; 32]>,
+    /// An HTLC that is still open, for claims, auto-settlement and duplicate hashlocks.
+    open: Htlc,
+    /// An HTLC past its expiry, for refunds and claims that arrive too late.
+    expired: Htlc,
+    expired_preimage: [u8; 32],
+    open_preimage: [u8; 32],
+    /// A pair drained to zero reserves with LP still outstanding.
     stranded: [u8; 32],
-    expired_preimage: &[u8; 32],
-    open_hashlock: [u8; 32],
+    /// A pair with a deep input reserve and a shallow output reserve.
     lopsided: [u8; 32],
-) -> Action {
+}
+
+/// Actions chosen to reach the failure and rejection paths on purpose.
+fn hostile_action(rng: &mut Rng, f: &Fixtures, round: u64) -> Action {
+    let ids = &f.ids;
+    let tokens = &f.tokens;
+    let pairs = &f.pairs;
+    let expired = &f.expired;
+    let stranded = f.stranded;
+    let lopsided = f.lopsided;
+    let expired_preimage = &f.expired_preimage;
+    let open_hashlock = f.open.hashlock;
     let unknown = [0xEEu8; 32];
     match rng.below(20) {
         // Static range violations → FieldOutOfRange

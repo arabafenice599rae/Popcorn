@@ -100,4 +100,15 @@ else
     echo "  skipped: the reference executor needs \`pip install blake3\`" >&2
 fi
 
+# ---------------------------------------------------------------------------------------
+# 6. The availability benchmark exists and still runs
+# ---------------------------------------------------------------------------------------
+# §11 makes this mandatory before genesis. It is a measurement, not a pass/fail: what it
+# must not do is rot, because the numbers in §11 are quoted from it.
+if cargo run --release -q -p popcorn-timelock --example dos_benchmark -- 200 >/dev/null 2>&1; then
+    pass "blind-collection benchmark runs (§11)"
+else
+    fail "the availability benchmark no longer runs"
+fi
+
 exit $status

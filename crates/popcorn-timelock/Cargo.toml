@@ -16,3 +16,4 @@ tlock_age.workspace = true
 [dev-dependencies]
 ed25519-dalek.workspace = true
 serde_json.workspace = true
+borsh.workspace = true
