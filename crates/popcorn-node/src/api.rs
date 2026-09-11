@@ -215,9 +215,17 @@ async fn supply(State(node): State<Arc<NodeApi>>) -> Json<Value> {
     let chain = node.chain.lock().await;
     let state = chain.state();
     let global = &state.global;
-    // Circulating is what is liquid: stake, escrow and the staking reserve exist but are not
-    // spendable. The four buckets are reported separately so the invariant of §5.5 can be
-    // checked straight off this endpoint.
+    // Circulating is what is liquid: stake, escrow, pool reserves and the staking reserve all
+    // exist but are not spendable from a balance. All five buckets of §5.5 are reported here,
+    // so an auditor can check the invariant off this endpoint alone rather than joining it
+    // against /pairs — which is what the first run against a chain with a native pool had to
+    // do, and is exactly the kind of friction that stops people checking.
+    let in_pools = state.total_native_in_pools();
+    let buckets = state.total_native_balances()
+        + global.total_staked
+        + state.total_native_in_htlcs()
+        + in_pools
+        + global.staking_reserved;
     Json(json!({
         "genesis_supply": constants::GENESIS_SUPPLY.to_string(),
         "emitted": global.native_emitted.to_string(),
@@ -225,7 +233,10 @@ async fn supply(State(node): State<Arc<NodeApi>>) -> Json<Value> {
         "circulating": state.total_native_balances().to_string(),
         "staked": global.total_staked.to_string(),
         "in_htlcs": state.total_native_in_htlcs().to_string(),
+        "in_pools": in_pools.to_string(),
         "staking_reserved": global.staking_reserved.to_string(),
+        "bucket_total": buckets.to_string(),
+        "invariant_holds": state.monetary_invariant_holds(constants::GENESIS_SUPPLY),
         "upper_bound": popcorn_core::emission::supply_upper_bound(constants::GENESIS_SUPPLY).to_string(),
         "height": global.height,
         "accounts": global.account_count,

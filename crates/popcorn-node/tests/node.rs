@@ -488,3 +488,131 @@ fn storage_streams_blocks_for_export() {
     assert!(journal.is_empty());
     let _ = &mut journal;
 }
+
+/// A chain that funds a native pool must verify, and must survive a reopen.
+///
+/// This is the path the four-bucket invariant broke: §10 checks the invariant at every block,
+/// so before the fifth bucket existed, an honest chain reported divergences the moment
+/// somebody added native liquidity — and the verifier calls a divergence "cryptographic proof
+/// of incorrectness". Driving it here keeps it from coming back.
+#[test]
+fn a_chain_with_native_pools_verifies_and_reopens() {
+    use popcorn_core::ids::{pair_id, token_id};
+
+    let dir = TempDir::new("native-pools");
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+    let foundation = config.foundation_account();
+
+    let mut chain = Chain::initialize(&dir.chain_file(), config.clone()).unwrap();
+
+    // Let the foundation accrue enough to provide liquidity: 150M native per block.
+    for height in 1..=24u64 {
+        chain
+            .produce(
+                beacon_bytes(999 + height),
+                vec![],
+                vec![],
+                vec![],
+                vec![],
+                &node_key,
+            )
+            .unwrap();
+    }
+    assert!(chain.state().balance_of(&foundation, &NATIVE_TOKEN) > 3_000_000_000);
+
+    let token = token_id(&foundation, 1);
+    let pair = pair_id(&NATIVE_TOKEN, &token, 30);
+
+    // One action per block, because nonces must be contiguous and each needs the previous
+    // one's effects.
+    let actions = vec![
+        Action::CreateToken {
+            name: *b"POOLTEST\0\0\0\0\0\0\0\0",
+            supply: 1_000_000_000_000,
+        },
+        Action::CreatePair {
+            token_a: NATIVE_TOKEN,
+            token_b: token,
+            fee_bps: 30,
+        },
+        Action::AddLiquidity {
+            pair,
+            amount0_desired: 1_000_000_000,
+            amount1_desired: 50_000_000_000,
+            amount0_min: 0,
+            amount1_min: 0,
+        },
+        Action::SwapExactIn {
+            path: vec![pair],
+            token_in: NATIVE_TOKEN,
+            amount_in: 100_000_000,
+            min_amount_out: 1,
+        },
+        Action::SwapExactOut {
+            path: vec![pair],
+            token_in: token,
+            amount_out: 50_000_000,
+            max_amount_in: u128::MAX / 2,
+        },
+        Action::RemoveLiquidity {
+            pair,
+            lp_amount: 2_000_000_000,
+            amount0_min: 0,
+            amount1_min: 0,
+        },
+    ];
+
+    for (index, action) in actions.into_iter().enumerate() {
+        let height = 25 + index as u64;
+        let round = 999 + height;
+        let nonce = 1 + index as u64;
+        let signed = tx(&foundation_key, nonce, round, action);
+        let block = chain
+            .produce(
+                beacon_bytes(round),
+                vec![],
+                vec![],
+                vec![signed],
+                vec![],
+                &node_key,
+            )
+            .unwrap();
+        assert_eq!(
+            block.results,
+            vec![popcorn_core::types::ExecStatus::Ok],
+            "action {index} did not execute: {:?}",
+            block.results
+        );
+        assert!(
+            chain.state().monetary_invariant_holds(0),
+            "the invariant broke after action {index}"
+        );
+    }
+
+    // The pool really does hold native, or this test proves nothing.
+    let in_pools = chain.state().total_native_in_pools();
+    assert!(in_pools > 0, "the pool holds no native");
+    assert_ne!(
+        chain.state().total_native_balances() + chain.state().global.staking_reserved,
+        chain.state().global.native_emitted - chain.state().global.native_burned,
+        "the four-bucket sum should NOT balance here — that is the whole point"
+    );
+
+    // Full verification, which checks the invariant at every block.
+    let blocks = chain.storage().blocks_from(0).unwrap();
+    let report = verify_chain(&config, &blocks);
+    assert!(
+        report.is_clean(),
+        "a chain with native pools failed verification: {:?}",
+        report.divergences
+    );
+
+    // And it survives a reopen: replay rebuilds the same state, pools included.
+    let expected_root = chain.state().state_root();
+    drop(chain);
+    let reopened = Chain::open(&dir.chain_file()).unwrap();
+    assert_eq!(reopened.state().state_root(), expected_root);
+    assert_eq!(reopened.state().total_native_in_pools(), in_pools);
+}

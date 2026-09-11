@@ -1085,7 +1085,7 @@ transferable while staked. Staking is the only way to take part in emission: it 
 | `GET` | `/account/{id}` | Account state |
 | `GET` | `/pair/{id}` | Reserves, fee_bps, lp_supply |
 | `GET` | `/tokens`, `/pairs` | Listings (pairs grouped by token couple, all tiers) |
-| `GET` | `/supply` | GENESIS, emitted, burned, circulating, staked |
+| `GET` | `/supply` | GENESIS, emitted, burned, and **all five buckets of §5.5** with their total, so the monetary invariant can be checked from this endpoint alone |
 | `GET` | `/topic/{topic}?from={h}` | Publishes on a topic (a convenience index over blocks, not state) |
 | `GET` | `/blob/{hash}` | Manifested encrypted blob (accounting audit §5.1; also on the mirror) |
 | `GET` | `/chain/export?from={h}` | Block stream for replay |

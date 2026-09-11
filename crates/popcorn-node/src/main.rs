@@ -31,11 +31,20 @@ USAGE:
     popcorn submit  --key <FILE> --node <URL> <ACTION>
 
 ACTIONS for `submit`:
-    transfer --to <ACCOUNT_HEX> --amount <N> [--token <TOKEN_HEX>]
-    stake    --amount <N>
-    unstake  --amount <N>
+    transfer         --to <ACCOUNT_HEX> --amount <N> [--token <TOKEN_HEX>]
+    stake            --amount <N>
+    unstake          --amount <N>
     claim
-    publish  --topic <TOPIC_HEX> --data <HEX>
+    publish          --topic <TOPIC_HEX> --data <HEX>
+    create-token     --name <NAME> --supply <N>
+    create-pair      --token-a <HEX> --token-b <HEX> --fee-bps <5|30|100>
+    add-liquidity    --pair <HEX> --amount0 <N> --amount1 <N> [--min0 <N>] [--min1 <N>]
+    remove-liquidity --pair <HEX> --lp <N> [--min0 <N>] [--min1 <N>]
+    swap-in          --path <HEX[,HEX...]> --token-in <HEX> --amount-in <N> [--min-out <N>]
+    swap-out         --path <HEX[,HEX...]> --token-in <HEX> --amount-out <N> --max-in <N>
+
+Identifiers derive from the signer and the nonce, so `create-token` and `create-pair`
+print the id their transaction will produce if it executes.
 
 Keys are distinct by design: the node key signs blocks and controls no funds, the
 foundation key holds value and signs no blocks. Only the node key is ever loaded by
@@ -273,7 +282,7 @@ fn verify(args: &[String]) -> Result<(), String> {
 /// receipt before the round's deadline is the only per-blob protection the model offers
 /// (§9.2), so the receipt is printed, not swallowed.
 fn submit(args: &[String]) -> Result<(), String> {
-    use popcorn_core::types::{SignedTx, TxPayload};
+    use popcorn_core::types::{Action, SignedTx, TxPayload};
     use popcorn_node::client;
     use popcorn_node::encoding::to_base64;
 
@@ -329,6 +338,27 @@ fn submit(args: &[String]) -> Result<(), String> {
         &serde_json::json!({ "blob": to_base64(&blob), "target_round": target_round }),
     )?;
 
+    // Derived ids, printed before the wait: a caller cannot look up a token that does not
+    // exist yet, and these are a pure function of the signer and the nonce (§4.1).
+    match &tx.payload.action {
+        Action::CreateToken { .. } => println!(
+            "token id:     {}",
+            to_hex(&popcorn_core::ids::token_id(&signer, nonce))
+        ),
+        Action::CreatePair {
+            token_a,
+            token_b,
+            fee_bps,
+        } => println!(
+            "pair id:      {}",
+            to_hex(&popcorn_core::ids::pair_id(token_a, token_b, *fee_bps))
+        ),
+        Action::HtlcLock { .. } => println!(
+            "htlc id:      {}",
+            to_hex(&popcorn_core::ids::htlc_id(&signer, nonce))
+        ),
+        _ => {}
+    }
     println!("tx_id:        {}", to_hex(&tx.tx_id()));
     println!("target round: {target_round} (head is at {current_round})");
     println!(
@@ -385,6 +415,53 @@ fn parse_action(args: &[String]) -> Result<popcorn_core::types::Action, String> 
                 amount: amount()?,
             })
         }
+        "create-token" => {
+            let raw = required(args, "--name")?;
+            if raw.len() > 16 || !raw.bytes().all(|b| (0x20..=0x7E).contains(&b)) {
+                return Err("--name must be at most 16 printable ASCII bytes".to_string());
+            }
+            // Right zero-padded, which is the canonical form (§14.9).
+            let mut name = [0u8; 16];
+            name[..raw.len()].copy_from_slice(raw.as_bytes());
+            Ok(Action::CreateToken {
+                name,
+                supply: required(args, "--supply")?
+                    .parse()
+                    .map_err(|_| "--supply must be a whole number".to_string())?,
+            })
+        }
+        "create-pair" => Ok(Action::CreatePair {
+            token_a: token_arg(args, "--token-a")?,
+            token_b: token_arg(args, "--token-b")?,
+            fee_bps: required(args, "--fee-bps")?
+                .parse()
+                .map_err(|_| "--fee-bps must be one of 5, 30, 100".to_string())?,
+        }),
+        "add-liquidity" => Ok(Action::AddLiquidity {
+            pair: hex32(&required(args, "--pair")?).ok_or("--pair must be 32 hex bytes")?,
+            amount0_desired: number(args, "--amount0")?,
+            amount1_desired: number(args, "--amount1")?,
+            amount0_min: optional_number(args, "--min0"),
+            amount1_min: optional_number(args, "--min1"),
+        }),
+        "remove-liquidity" => Ok(Action::RemoveLiquidity {
+            pair: hex32(&required(args, "--pair")?).ok_or("--pair must be 32 hex bytes")?,
+            lp_amount: number(args, "--lp")?,
+            amount0_min: optional_number(args, "--min0"),
+            amount1_min: optional_number(args, "--min1"),
+        }),
+        "swap-in" => Ok(Action::SwapExactIn {
+            path: path_arg(args)?,
+            token_in: token_arg(args, "--token-in")?,
+            amount_in: number(args, "--amount-in")?,
+            min_amount_out: optional_number(args, "--min-out"),
+        }),
+        "swap-out" => Ok(Action::SwapExactOut {
+            path: path_arg(args)?,
+            token_in: token_arg(args, "--token-in")?,
+            amount_out: number(args, "--amount-out")?,
+            max_amount_in: number(args, "--max-in")?,
+        }),
         "stake" => Ok(Action::Stake { amount: amount()? }),
         "unstake" => Ok(Action::Unstake { amount: amount()? }),
         "claim" => Ok(Action::ClaimRewards {}),
@@ -445,6 +522,37 @@ fn fetch_chain(url: &str) -> Result<(GenesisConfig, Vec<popcorn_core::types::Blo
         },
         blocks,
     ))
+}
+
+/// A token argument: 32 hex bytes, or the word `native`.
+fn token_arg(args: &[String], name: &str) -> Result<[u8; 32], String> {
+    use popcorn_node::encoding::hex32;
+    let raw = required(args, name)?;
+    if raw == "native" {
+        return Ok(popcorn_core::constants::NATIVE_TOKEN);
+    }
+    hex32(&raw).ok_or_else(|| format!("{name} must be 32 hex bytes or `native`"))
+}
+
+/// A swap path: one or more pair ids, comma-separated, in hop order.
+fn path_arg(args: &[String]) -> Result<Vec<[u8; 32]>, String> {
+    use popcorn_node::encoding::hex32;
+    required(args, "--path")?
+        .split(',')
+        .map(|entry| {
+            hex32(entry.trim()).ok_or_else(|| "--path entries must be 32 hex bytes".to_string())
+        })
+        .collect()
+}
+
+fn number(args: &[String], name: &str) -> Result<u128, String> {
+    required(args, name)?
+        .parse()
+        .map_err(|_| format!("{name} must be a whole number"))
+}
+
+fn optional_number(args: &[String], name: &str) -> u128 {
+    flag(args, name).and_then(|v| v.parse().ok()).unwrap_or(0)
 }
 
 fn chain_path(data: &Path) -> PathBuf {
