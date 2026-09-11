@@ -165,11 +165,19 @@ Functions: `tlock::encrypt(&mut dst, src, &pubkey, round)`, `tlock::decrypt(&mut
 - The exact commit of the vendored `tlock` / `tlock_age` / `drand_core` forks is recorded in
   genesis (profile: the raw 16-byte tlock primitive is NOT modified; payloads go through the
   age format).
-- A **cross-language test vector suite** lives in the repository as a CI gate: encrypt in
-  Rust / tlock-js / tlock-Go, decrypt in each of the others, byte-identical.
+- A **cross-language test vector suite** lives in the repository as a CI gate
+  (`interop/run-gate.sh`): every one of the three implementations encrypts, and the other two
+  decrypt, in all nine directions; all three then return **identical verdicts** on the shared
+  rejection vectors in `vectors/profile/`.
 
 That suite is the precondition for "reproducible verification in any language" to hold for
 encryption too, not just for replay.
+
+> **Ciphertexts are not byte-identical across implementations, and must not be expected to
+> be.** tlock encryption is randomized, and `age` greases its headers (§3.6), so the same
+> plaintext encrypts differently every time even within one implementation. What the gate
+> compares is the **plaintext after a round trip** and the **acceptance verdict** — those are
+> the two things a disagreement could fork the chain over.
 
 ---
 
@@ -198,8 +206,16 @@ encryption too, not just for replay.
 
 - **Human client (Solana wallet)**: web frontend → Wallet Adapter
   `signMessage(blake3(SIGN_DOMAIN || borsh(payload)))` → encryption with **tlock-js** toward
-  the target round → `POST /tx`. No emulated Solana RPC: the wallet signs, our client talks
-  to our API.
+  the target round → **de-armor** (below) → `POST /tx`. No emulated Solana RPC: the wallet
+  signs, our client talks to our API.
+
+  > **De-armoring is mandatory for JavaScript clients.** `tlock-js` returns an **armored**
+  > age file (`-----BEGIN AGE ENCRYPTED FILE-----`), and armor is forbidden by the profile
+  > (§3.6) — it is a second encoding of the same ciphertext, so accepting it would give one
+  > transaction two blob hashes, and both the manifest and the receipts key on that hash. A
+  > client strips the PEM wrapper and base64-decodes the body before submitting; the Rust and
+  > Go clients emit binary already. The cross-language gate covers this, and
+  > `interop/js/interop.mjs` is the three-line reference.
 - **Bot client**: an ed25519 keypair in a file plus an HTTP client; encryption with tlock
   (Rust), tlock-js (JS/TS) or drand/tlock (Go) — all interoperable.
 
@@ -1370,3 +1386,10 @@ rather than left to the implementer.
     round's BLS signature, and a block carries its own signature — so the collection audit of
     §10 runs offline from `/chain/export` plus a blob mirror. Only *producing* a block needs a
     live beacon.
+14. **JavaScript clients must de-armor.** `tlock-js` emits armored age files; the profile
+    forbids armor. See the note in §3.2: this is a client requirement, not a consensus change,
+    and without it every browser-submitted blob would be `unusable`.
+15. **Implementations disagree on grease, and the profile absorbs it.** Measured, not assumed:
+    the Rust stack writes one `tlock` stanza plus one grease stanza, while drand's Go tlock
+    writes the `tlock` stanza alone. "Exactly one `tlock` stanza, at most one grease" is the
+    only rule that accepts both — which is why §3.6 reads the way it does.

@@ -1,0 +1,25 @@
+{
+  "cases": {
+    "armored": "Armored",
+    "carriage_return": "CarriageReturn",
+    "chain_hash_other": "ChainHashMismatch",
+    "chain_hash_uppercase": "ChainHashMismatch",
+    "conforming": "OK",
+    "conforming_with_grease": "OK",
+    "empty": "Empty",
+    "foreign_stanza": "ForeignStanza",
+    "header_too_large": "HeaderTooLarge",
+    "malformed_stanza_args": "MalformedStanzaArgs",
+    "missing_mac": "MissingMac",
+    "no_payload": "NoPayload",
+    "no_stanza_at_all": "NoStanza",
+    "no_tlock_stanza": "WrongStanzaType",
+    "non_canonical_round": "NonCanonicalRound",
+    "round_mismatch": "RoundMismatch",
+    "two_grease_stanzas": "MultipleGreaseStanzas",
+    "two_tlock_stanzas": "MultipleTlockStanzas",
+    "wrong_version": "BadIntroLine"
+  },
+  "chain_hash": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+  "round": 1000
+}

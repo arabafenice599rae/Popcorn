@@ -1,2 +1,5 @@
 /target
 **/*.rs.bk
+/interop/go/popcorn-interop
+/interop/js/node_modules
+/interop/js/package-lock.json

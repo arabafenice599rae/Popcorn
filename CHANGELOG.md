@@ -26,6 +26,9 @@ corrections rather than clarifications:
   The profile now admits one `tlock` stanza plus at most one grease stanza, and refuses every
   other stanza type. The consequence — one transaction can be encrypted into unlimited
   distinct blobs — is declared in §3.6.
+- **§3.2, armored JavaScript output.** `tlock-js` returns an armored age file, which the
+  profile forbids. JavaScript clients must de-armor before submitting; without it every
+  browser-submitted blob would be `unusable`. A client requirement, not a consensus change.
 - **§14.7, `CreatePair` check order.** The LP-token check must precede the existence check, or
   `LpTokenAsPairSide` is unreachable and its discriminant is dead in a committed enum.
 
