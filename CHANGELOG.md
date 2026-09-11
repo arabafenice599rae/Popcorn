@@ -15,6 +15,20 @@ After genesis, anything listed as consensus-breaking in §13 is effectively a ne
 - Blob mirroring promoted from optional to an **operational obligation** of the operator
   (outside consensus) — without it the collection audit is not practicable.
 
+## v0.9.3-en — English edition, reference implementation
+
+The specification was translated to English and restructured; normative content is unchanged
+except where implementation forced a decision, which is recorded in §14. Two of those are
+corrections rather than clarifications:
+
+- **§3.6, grease stanzas.** "Exactly one recipient stanza" was unimplementable against the
+  pinned `age` version, which appends a randomized `-grease` stanza to every header it writes.
+  The profile now admits one `tlock` stanza plus at most one grease stanza, and refuses every
+  other stanza type. The consequence — one transaction can be encrypted into unlimited
+  distinct blobs — is declared in §3.6.
+- **§14.7, `CreatePair` check order.** The LP-token check must precede the existence check, or
+  `LpTokenAsPairSide` is unreachable and its discriminant is dead in a committed enum.
+
 ## v0.9.2 — staking is literal Synthetix (fixes the P0 on `reserved ≥ Σ pending`)
 
 The inequality declared in v0.9.1 was false. Counterexample: the dust routed to the foundation

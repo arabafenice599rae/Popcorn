@@ -262,14 +262,38 @@ profile.
 |---|---|
 | Format | age v1, binary |
 | Armor | **forbidden** |
-| Recipient stanzas | **exactly one**, of type tlock, toward the target round |
-| Encoding | canonical (canonical base64, LF only) |
-| Header size | ≤ 1 KiB |
-| Payload | STREAM v1 |
+| Recipient stanzas | **exactly one** of type `tlock`, toward the target round, plus **at most one** grease stanza (below) |
+| Encoding | canonical (canonical base64 without padding, lowercase hex, LF only) |
+| Round argument | canonical decimal, no leading zeros |
+| Chain hash argument | the pinned `DRAND_CHAIN_HASH`, lowercase hex |
+| Header size | ≤ 1 KiB, from the first byte through the MAC line |
+| Payload | STREAM v1, and non-empty |
 
 Any deviation ⇒ `unusable`. The **acceptance policy is normative**: node and verifiers MUST
 accept and reject the same bytes — the cross-language test vectors cover rejection cases, not
 just round-trips.
+
+**The grease stanza (amended v0.9.3-en).** Earlier text said "exactly one recipient stanza",
+full stop. That rule is **unimplementable** with the pinned stack: the `age` implementation
+appends a randomized stanza tagged `<random>-grease` to every header it writes, by design, to
+keep parsers from ossifying. Enforcing "exactly one" would reject every blob produced by the
+Rust client this document itself names as interoperable. The rule is therefore:
+
+- exactly one stanza of type `tlock`, carrying the target round and the pinned chain hash;
+- at most one additional stanza whose type ends in `-grease`, which is **ignored**;
+- any other stanza ⇒ `unusable`.
+
+Refusing foreign stanzas is the part that carries weight: a second recipient stanza would be a
+decryption path for someone other than the round. A grease stanza cannot become one — no
+implementation unwraps a file key from an unknown tag — and the header cap bounds the
+attacker-chosen bytes it can carry.
+
+One consequence follows and is declared rather than hidden: because the grease stanza is
+random, the same transaction encrypts to **different blobs** on every attempt. A client can
+therefore mint unlimited distinct blobs for one transaction. `collection_root` deduplicates
+identical blobs only, so these arrive as distinct manifest entries; the logical duplicate is
+still resolved by nonce deduplication (§5.2, step 6), and the volume is bounded by the
+wire-level admission limits of §11, not by consensus.
 
 **Transaction encryption (frozen)**: the blob is the Borsh payload encrypted in the **age
 format with a tlock recipient toward round `R`** (`tlock_age`): age generates the file key,
@@ -1338,3 +1362,11 @@ rather than left to the implementer.
 11. **Half-empty pools.** A pair with exactly one zero reserve has no defined price:
     `AddLiquidity` against it is `Failed(ReGenesisGuard)`, the same outcome as stranded LP over
     two zero reserves. It must be drained and restarted through the genesis branch.
+12. **Grease stanzas are tolerated.** See the amendment in §3.6: "exactly one recipient stanza"
+    was unimplementable against the pinned `age` version, which greases every header. The
+    profile now admits one `tlock` stanza plus at most one `-grease` stanza, and refuses every
+    other stanza type.
+13. **Blob decryption needs no network.** Decryption requires only the chain hash and the
+    round's BLS signature, and a block carries its own signature — so the collection audit of
+    §10 runs offline from `/chain/export` plus a blob mirror. Only *producing* a block needs a
+    live beacon.
