@@ -1,86 +1,119 @@
-# POPCORN
+<p align="center">
+  <img src="assets/popcorn-logo.jpg" alt="POPCORN" width="520">
+</p>
 
-Chain a **nodo unico** con economia nativa a **supply massima finita** — *single-operator
-deterministic/verifiable execution chain*. Nessun consenso distribuito, nessun P2P: la
-fiducia è sostituita dalla **verificabilità**, chiunque ri-esegue lo stato da zero e
-confronta ogni `state_root`, ogni emissione e ogni burn.
+<h1 align="center">POPCORN</h1>
 
-> **Stato: pre-genesis.** La specifica normativa è **[`SPEC.md`](SPEC.md) — v0.9.3
-> (freeze candidate)**. Finché il genesis non è prodotto, parametri e semantiche sono
-> modificabili; dopo, ogni cambiamento elencato in §13 è di fatto una nuova chain.
+<p align="center">
+  A single-node chain with a native economy and a finite maximum supply.<br>
+  <em>Single-operator deterministic/verifiable execution chain.</em>
+</p>
 
-## Le quattro garanzie (§1)
+<p align="center">
+  <a href="SPEC.md"><strong>Specification</strong></a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONSENSUS-LOCK.md">Consensus lock</a>
+</p>
 
-POPCORN **non** promette censorship resistance. Promette, e può dimostrare:
+---
 
-1. **Blindness pre-beacon** — il timelock (tlock su drand quicknet) impedisce all'operatore
-   di conoscere il plaintext di un blob prima che il beacon del round esista.
-2. **Ordinamento deterministico** — l'ordine di esecuzione è funzione del beacon
-   (Fisher-Yates su BLAKE3-XOF), mai una scelta dell'operatore.
-3. **Receipt accountability** — per ogni blob ricevutato, l'omissione dal `blob_manifest`
-   è una contraddizione fra due firme dello stesso nodo.
-4. **Verificabilità dello state root** — qualunque scorrettezza contabile o di esecuzione
-   diverge nel replay.
+There is no distributed consensus and no P2P layer here. Trust is replaced by
+**verifiability**: anyone downloads the chain and re-executes state from zero — including
+every emission and every burn — and compares state roots. The operator cannot rewrite
+history, emit outside the formula, or alter supply without diverging.
 
-Il limite è dichiarato, non nascosto: l'inclusione resta l'unico cancello, e l'accountability
-copre i blob per cui il nodo ha emesso una ricevuta — non è una prova universale della
-ricezione di ogni pacchetto (§1, §9.2).
+> **Status: pre-genesis.** The normative document is [`SPEC.md`](SPEC.md) — v0.9.3, freeze
+> candidate, `CONSENSUS_VERSION = 0x0000_0009_0002`. Parameters and semantics stay editable
+> until genesis is produced; after that, every change listed in §13 is effectively a new chain.
 
-## In breve
+## The four guarantees
+
+POPCORN does **not** promise censorship resistance. It promises, and can prove:
+
+| | Guarantee | Mechanism |
+|---|---|---|
+| 1 | **Pre-beacon blindness** | tlock over drand quicknet: the operator cannot read a blob before the round's beacon exists |
+| 2 | **Deterministic ordering** | Fisher-Yates over BLAKE3-XOF seeded by the beacon — never an operator choice |
+| 3 | **Receipt accountability** | a receipted blob missing from the manifest is a contradiction between two node signatures |
+| 4 | **State root verifiability** | any accounting or execution error diverges under replay |
+
+The limit is declared, not buried: inclusion remains the only gate, and accountability covers
+blobs the node receipted — it is not a universal proof that every packet sent was received
+(§1.2, §9.2).
+
+## At a glance
 
 | | |
 |---|---|
-| Batch | 1 per round drand quicknet (3 s); `round(h) = GENESIS_DRAND_ROUND + h − 1`, mai skip |
-| Identità | ed25519, `AccountId = blake3(verifying_key)` — una keypair Phantom/Solflare è valida |
-| Account | impliciti alla prima ricezione di fondi; pubkey materializzata al primo spend (P2PKH) |
-| Economia | fair launch (`GENESIS_SUPPLY = 0`), emissione per batch con halving, split 85/15 staker/foundation, fee **bruciate** |
-| Supply | ≈ 21,02 M come limite superiore; l'effettiva la ricalcola il verificatore batch per batch |
-| DEX | Uniswap V2 generalizzato ai fee tier: multi-hop, exact-in/exact-out, LP token di prima classe |
-| Staking | accumulatore O(1), trascrizione letterale di Synthetix `StakingRewards` |
-| HTLC | swap atomici cross-chain portati dagli utenti; hashlock SHA-256, nessun bridge di protocollo |
-| Publish | bacheca dati timestampata dal beacon; nessun effetto sullo stato, nessuna VM |
-| Storage | redb single-file; `blocks` append-only è la fonte di verità, `state` è cache ricostruibile |
+| Batch | one per drand quicknet round (3 s); `round(h) = GENESIS_DRAND_ROUND + h − 1`, never skipped |
+| Identity | ed25519, `AccountId = blake3(verifying_key)` — a Phantom/Solflare keypair works |
+| Accounts | implicit on first receipt of funds; pubkey materializes on first spend (P2PKH) |
+| Economy | fair launch (`GENESIS_SUPPLY = 0`), per-batch emission with halving, 85/15 staker/foundation split, fees **burned** |
+| Supply | ≈ 21.02 M as an upper bound; the effective figure is recomputed by the verifier batch by batch |
+| DEX | Uniswap V2 generalized to fee tiers: multi-hop, exact-in/exact-out, LP tokens as first-class tokens |
+| Staking | O(1) accumulator, a literal transcription of Synthetix `StakingRewards` |
+| HTLC | user-carried atomic cross-chain swaps; SHA-256 hashlocks, no protocol bridge |
+| Publish | a data board timestamped by the beacon; no state effect, no VM |
+| Storage | single-file redb; append-only `blocks` is the source of truth, `state` is a rebuildable cache |
 
-## Il consenso è normativo (§13)
+## Repository layout
 
-Il determinismo non è emergente ("Rust+Borsh+blake3 lo sono"): è **definito**.
-`CONSENSUS_VERSION = 0x0000_0009_0002`. Ogni semantica che può influenzare lo state root —
-verifica delle firme (`ed25519-dalek::verify_strict`, versione pinnata), serializzazione
-Borsh, arrotondamenti AMM, calcolo delle fee, formule di emissione/reward, shuffle, mapping
-round→blocco, policy del beacon — vive in §13 con la sua versione. `Cargo.lock` non è una
-specifica di consenso; l'annex CONSENSUS-LOCK, impresso nel genesis, sì.
+```
+crates/
+  popcorn-core/       consensus: types, IDs, state root, AMM, staking, validation, execution
+  popcorn-timelock/   TimelockProvider: drand beacons, POPCORN-TLOCK-AGE-V1 blobs
+  popcorn-node/       storage (redb), HTTP/WS API, block producer, replay verifier, CLI
+SPEC.md               normative specification (v0.9.3)
+CONSENSUS-LOCK.md     exact pinned versions of every consensus-relevant dependency
+```
 
-Regola ferrea che tocca ogni riga di codice consensus: **zero collezioni non ordinate nel
-commitment**. Solo `BTreeMap`/`BTreeSet`/`Vec` a ordine esplicito — `HashMap`/`HashSet` sono
-vietati indipendentemente dalla versione di borsh/hashbrown (rif. RUSTSEC-2024-0402).
+`popcorn-core` is pure: no I/O, no async, no clock. Everything that can influence the state
+root lives there, which is what makes the reference executor and the replay verifier possible.
 
-## Gate obbligatori pre-genesis
+## Build and run
 
-- **Property test dello staking** (§8): milioni di sequenze emission/stake/unstake/claim,
-  con verifica **dopo ogni operazione** di (a) invariante monetario a quattro bucket come
-  uguaglianza esatta, (b) conservazione del totale in ogni settle, (c)
-  `staking_reserved ≥ Σ pending ≥ 0`.
-- **Test vector cross-language** (§2.2): encrypt/decrypt fra Rust `tlock_age`, tlock-js e
-  drand/tlock Go, byte-identici — casi di **rifiuto** del profilo POPCORN-TLOCK-AGE-V1 inclusi.
-- **Test vector consensus-grade** (§10): fixture end-to-end tx firmata → blob → beacon →
-  batch ordinato → `state_root` → ricevuta, più un **reference executor indipendente** come
-  differenziale.
-- **Test di canonicità** (§2.2): stesso stato logico, ordini di inserimento diversi → byte
-  identici → `state_root` identico.
-- **Benchmark worst-case della raccolta cieca** (§11): 10k ciphertext validi, 10k tlock
-  invalidi, 10k blob garbage.
+```bash
+cargo build --release
+cargo test --workspace              # includes the consensus gates below
 
-## Obblighi operativi (fuori consenso)
+# initialize a chain (block 0, empty state, fair launch)
+./target/release/popcorn keygen --out node.key
+./target/release/popcorn keygen --out foundation.key
+./target/release/popcorn genesis --data ./data \
+    --node-key node.key --foundation-key foundation.key
 
-L'operatore **deve** mantenere il mirror dei blob cifrati manifestati (§10, v0.9.3): senza,
-l'audit della collection (`manifest → txs/rejected/unusable`) non è praticabile da terzi.
-Le difese di availability della fase di raccolta — che è cieca e quindi senza fee —
-sono wire-level (`MAX_TOTAL_INGRESS_PER_ROUND`, rate-limiting per IP, budget CPU di
-decifratura) e non toccano il protocollo (§11).
+# run the node
+./target/release/popcorn node --data ./data --listen 127.0.0.1:8080
+
+# replay the chain from genesis and compare every state root
+./target/release/popcorn verify --data ./data
+```
+
+## Consensus gates
+
+These run in `cargo test` and are the conditions under which genesis may be produced at all:
+
+- **Staking property test** (§8) — random emission/stake/unstake/claim sequences checking,
+  after *every* operation: the four-bucket monetary invariant as an exact equality, total
+  conservation at each settle, and `staking_reserved ≥ Σ pending ≥ 0`.
+- **Canonicity test** (§2.3) — same logical state, different insertion orders → identical
+  bytes → identical `state_root`.
+- **Consensus-grade vectors** (§10) — byte-for-byte fixtures from signed transaction through
+  ordered batch to `state_root` and receipt, reproducible by an independent implementer.
+- **Cross-language blob vectors** (§2.4) — encrypt/decrypt across Rust `tlock_age`, tlock-js
+  and drand/tlock Go, byte-identical, rejection cases included.
+
+## Operational obligations (outside consensus)
+
+The operator **must** mirror the manifested encrypted blobs (§10): without them the collection
+audit (`manifest → txs / rejected / unusable`) is not practicable by third parties. Availability
+defences for the blind collection phase — which has no fees, since the signer is unknown until
+decryption — are wire-level (`MAX_TOTAL_INGRESS_PER_ROUND`, per-IP rate limiting, a decryption
+CPU budget) and never touch the protocol (§11).
 
 ## Naming
 
-Il nome è un **identificativo di consenso**, non una variabile di marketing: entra nei
-preimage firmati (`SIGN_DOMAIN = "popcorn-v1"`, dominio ricevuta `"popcorn-receipt-v1"`,
-profili POPCORN-TLOCK-AGE-V1 / POPCORN-CONSENSUS / POPCORN-V2-MATH). Qualunque occorrenza di
-ARENA / arena-chain, in qualunque forma, è stale per costruzione.
+The name is a **consensus identifier**, not a marketing variable: it enters signed preimages
+(`SIGN_DOMAIN = "popcorn-v1"`, receipt domain `"popcorn-receipt-v1"`, the POPCORN-TLOCK-AGE-V1 /
+POPCORN-CONSENSUS / POPCORN-V2-MATH profiles). Any occurrence of ARENA / arena-chain, in any
+form, is stale by construction.
