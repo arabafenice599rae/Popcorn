@@ -1,0 +1,17 @@
+[package]
+name = "popcorn-core"
+description = "POPCORN consensus core: state, execution, and the state root. No I/O, no clock."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3.workspace = true
+borsh.workspace = true
+ed25519-dalek.workspace = true
+primitive-types.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+rand_core = "0.6"

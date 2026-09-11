@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/popcorn-core",
+    "crates/popcorn-timelock",
+    "crates/popcorn-node",
+]
+
+# Consensus-relevant dependencies are pinned EXACTLY (`=`), per SPEC.md §13:
+# upgrading one of them is a declared consensus change, never a side effect of
+# `cargo update`. The pinned set is mirrored in CONSENSUS-LOCK.md.
+[workspace.dependencies]
+blake3 = { version = "=1.8.7", default-features = false, features = ["std"] }
+borsh = { version = "=1.8.1", features = ["derive", "de_strict_order"] }
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "rand_core"] }
+primitive-types = { version = "=0.14.0", default-features = false }
+sha2 = { version = "=0.10.9", default-features = false }
+
+# Non-consensus dependencies: the API surface, storage and the timelock transport.
+age = "=0.12.1"
+axum = "=0.8.9"
+drand_core = "=0.0.19"
+redb = "=4.2.0"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+tlock = "=0.0.10"
+tlock_age = "=0.0.10"
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread", "sync", "time", "signal"] }
+
+popcorn-core = { path = "crates/popcorn-core" }
+popcorn-timelock = { path = "crates/popcorn-timelock" }
+
+[workspace.package]
+version = "0.9.3"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+panic = "abort"

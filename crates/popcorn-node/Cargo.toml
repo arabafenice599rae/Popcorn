@@ -1,0 +1,15 @@
+[package]
+name = "popcorn-node"
+description = "POPCORN node: storage, API, block production and replay verification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "popcorn"
+path = "src/main.rs"
+
+[dependencies]
+popcorn-core.workspace = true
+popcorn-timelock.workspace = true

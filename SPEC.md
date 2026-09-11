@@ -1321,3 +1321,20 @@ rather than left to the implementer.
 6. **Hashlock index visibility.** The `hashlock → htlc_id` index is a derived cache (§7.6):
    never serialized, never in the state root, rebuilt from the `htlcs` table at startup and at
    replay.
+7. **`CreatePair` check order.** The LP-token check runs **before** the existence check. An LP
+   token has no `Token` record, so checking existence first would report `UnknownToken` for
+   every LP side and leave `LpTokenAsPairSide` unreachable — a dead discriminant in a committed
+   enum.
+8. **`CreatePair` with `token_a == token_b`** ⇒ `Failed(BadPath)`. The condition is a pure field
+   check, but §6 places it at runtime, and `BadPath` is the reason for a structurally
+   impossible route.
+9. **Canonical token-name padding.** The 16 name bytes are printable ASCII followed by zero
+   padding; a printable byte **after** a zero byte is `FieldOutOfRange`. Without this, one
+   visible name would have several encodings and therefore several `TokenId`s.
+10. **Manifest normalization is structural.** A batch executor sorts and deduplicates
+    `blob_manifest` and `unusable` before committing to them, rather than trusting its caller's
+    ordering. `collection_root` is defined over the set in lexicographic order, so a multiset
+    manifest must be unrepresentable, not merely forbidden.
+11. **Half-empty pools.** A pair with exactly one zero reserve has no defined price:
+    `AddLiquidity` against it is `Failed(ReGenesisGuard)`, the same outcome as stranded LP over
+    two zero reserves. It must be drained and restarted through the genesis branch.
