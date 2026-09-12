@@ -66,6 +66,14 @@ Decryption runs across cores. On the numbers in [Security](security.md#availabil
 plan for roughly nine cores if you intend to admit a full 10,000-blob batch every round, or set
 a `MAX_TLOCK_DECRYPT_WORK_PER_ROUND` you can actually meet.
 
+Two flags decide what the node serves, and neither is consensus (§13.3) — a node with both
+turned off still serves everything a verifier needs:
+
+| Flag | Effect |
+|---|---|
+| `--no-web` | Do not serve the [explorer and wallet](web.md) at `/`. The endpoints stay |
+| `--cors '*'` or `--cors <ORIGIN>[,<ORIGIN>...]` | Let browser pages on other origins read this API. Off by default; see [API](api.md#reading-this-api-from-another-origin) for why this is not a security setting |
+
 ## Submitting transactions
 
 The client signs, encrypts toward a future round, and posts. The node answers with a receipt it

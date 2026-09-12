@@ -11,6 +11,7 @@ use popcorn_core::constants::{DRAND_REMOTES, GENESIS_SUPPLY};
 use popcorn_core::genesis::GenesisConfig;
 use popcorn_node::api::{router, NodeApi};
 use popcorn_node::chain::Chain;
+use popcorn_node::cors::CorsPolicy;
 use popcorn_node::encoding::to_hex;
 use popcorn_node::mempool::Mempool;
 use popcorn_node::producer::Producer;
@@ -26,6 +27,7 @@ USAGE:
     popcorn keygen --out <FILE>
     popcorn genesis --data <DIR> --node-key <FILE> --foundation-key <FILE> [--drand-round <N>]
     popcorn node    --data <DIR> --node-key <FILE> [--listen <ADDR>] [--no-web]
+                    [--cors '*' | <ORIGIN>[,<ORIGIN>...]]
     popcorn verify  --data <DIR> | --node <URL> [--audit-collection]
     popcorn account --key <FILE>
     popcorn submit  --key <FILE> --node <URL> <ACTION>
@@ -171,6 +173,14 @@ fn node(args: &[String]) -> Result<(), String> {
     // with the API it signs against. `--no-web` is for operators who want the endpoints
     // only; it changes nothing a verifier depends on (§13.3).
     let serve_web = !args.iter().any(|arg| arg == "--no-web");
+    // Third-party front ends: off unless asked for. The page this node serves is same-origin
+    // and needs nothing here; the flag is for somebody else's explorer or wallet, hosted
+    // elsewhere, whose browser would otherwise refuse to read this API at all. It is not a
+    // security boundary — there is no authorization to protect — see `cors.rs`.
+    let cors = match flag(args, "--cors") {
+        Some(value) => Some(CorsPolicy::parse(&value)?),
+        None => None,
+    };
 
     let node_key = keys::load(&node_key_path).map_err(|e| e.to_string())?;
     let chain = Chain::open(&chain_path(&data)).map_err(|e| e.to_string())?;
@@ -218,6 +228,9 @@ fn node(args: &[String]) -> Result<(), String> {
             if serve_web {
                 println!("explorer and wallet: http://{listen}/");
             }
+            if let Some(policy) = &cors {
+                println!("cross-origin reads allowed from: {}", policy.describe());
+            }
         }
 
         // One batch per drand round (§11).
@@ -226,7 +239,7 @@ fn node(args: &[String]) -> Result<(), String> {
         let listener = tokio::net::TcpListener::bind(&listen)
             .await
             .map_err(|e| e.to_string())?;
-        axum::serve(listener, router(api, serve_web))
+        axum::serve(listener, router(api, serve_web, cors))
             .with_graceful_shutdown(async {
                 let _ = tokio::signal::ctrl_c().await;
                 println!("\nshutting down");

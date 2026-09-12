@@ -24,6 +24,25 @@
 | `WS` | `/stream` | Blocks pushed as they are produced |
 | `GET` | `/` · `/app.js` · `/app.css` · `/logo.jpg` | The [explorer and wallet](web.md), compiled into the binary. `--no-web` removes these four — and nothing a verifier needs |
 
+### Reading this API from another origin
+
+A node sends no `Access-Control-Allow-Origin` by default: the page it serves is same-origin
+and needs none. A browser front end hosted anywhere else is blocked until the operator opts
+in, per origin or for everyone:
+
+```bash
+popcorn node --data ./chain --node-key node.key --cors 'https://your-frontend.example'
+popcorn node --data ./chain --node-key node.key --cors '*'
+```
+
+Say plainly what this is and is not. It is **not** a security boundary: there are no cookies,
+no sessions and no authorization here, every endpoint answers the same to everyone, and
+`POST /tx` takes bytes from anyone by design. A page that cannot call this API from JavaScript
+can still call it from its own backend, so the header decides whether third-party pages need a
+proxy — nothing more. Credentials are never allowed, because there are none to send. CLI, bot
+and server-side clients need no flag, and `/stream` is unaffected either way: WebSocket
+handshakes are not subject to CORS.
+
 ## `/tx` — and the receipt you should keep
 
 ```bash

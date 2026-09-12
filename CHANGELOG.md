@@ -26,6 +26,21 @@ After genesis, anything listed as consensus-breaking in §13 is effectively a ne
   is still refused. It runs offline against round 1000.
 - §3.2 and §9.1 record the page and its four routes; §13.3 already classified serving as free,
   and nothing here changes that.
+- **`--cors` for third-party front ends.** The API sent no `Access-Control-Allow-Origin`,
+  which was right for the page the node serves — same-origin, nothing needed — and wrong for
+  anyone building their own browser client: it was blocked outright. The flag takes `*` or a
+  list of origins, answers preflights (so `POST /tx`, which has no `OPTIONS` route, works),
+  matches origins exactly rather than by prefix, and stays off by default. It is documented
+  as what it is: **not** a security boundary. This API has no cookies, sessions or
+  authorization, every endpoint answers the same to everyone, and `POST /tx` takes bytes from
+  anyone by design — so the header decides whether third-party pages need a proxy, not who may
+  read the chain. `Allow-Credentials` is never sent, because there are none.
+- `web/README.md` documents the reusable modules — `borsh.js`, `popcorn.js`, `actions.js`,
+  `wallet.js`, `api.js`, shipped together as `dist/popcorn.mjs` — for people writing their own
+  client, including the three things that are easy to get wrong (de-armoring, the signed
+  target round, `BigInt` amounts) and the fact that pools have no owner: a `Pair` carries no
+  creator, its id is derivable by anyone, and "a front end for my pools" is a client-side
+  filter on pair ids, not an on-chain relationship.
 - Two client-side traps closed while testing it against a live chain: an HTLC passphrase now
   becomes the 32-byte preimage (hashing a passphrase straight into the hashlock produced an
   escrow whose preimage was the wrong length, so it could never be claimed — only refunded

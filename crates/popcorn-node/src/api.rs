@@ -24,6 +24,7 @@ use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::chain::Chain;
+use crate::cors::CorsPolicy;
 use crate::encoding::{from_base64, hex32, to_base64, to_hex};
 use crate::mempool::Mempool;
 use crate::producer::now_ms;
@@ -36,16 +37,24 @@ pub struct NodeApi {
     pub blocks: broadcast::Sender<Block>,
 }
 
-/// The API routes, plus the explorer and wallet unless the operator turned them off.
+/// The API routes, plus the explorer and wallet unless the operator turned them off, plus
+/// cross-origin headers if the operator opted in.
 ///
-/// `serve_web` is an operational switch, not a consensus one (§13.3): a node that serves no
-/// page still serves every endpoint a verifier needs.
-pub fn router(node: Arc<NodeApi>, serve_web: bool) -> Router {
+/// Both switches are operational, not consensus (§13.3): a node that serves no page and no
+/// CORS header still serves every endpoint a verifier needs.
+pub fn router(node: Arc<NodeApi>, serve_web: bool, cors: Option<CorsPolicy>) -> Router {
     let api = api_router(node);
-    if serve_web {
+    let router = if serve_web {
         api.merge(crate::web::routes())
     } else {
         api
+    };
+    match cors {
+        Some(policy) => router.layer(axum::middleware::from_fn_with_state(
+            Arc::new(policy),
+            crate::cors::layer,
+        )),
+        None => router,
     }
 }
 

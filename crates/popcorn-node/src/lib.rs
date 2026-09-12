@@ -9,6 +9,7 @@
 pub mod api;
 pub mod chain;
 pub mod client;
+pub mod cors;
 pub mod encoding;
 pub mod keys;
 pub mod mempool;
