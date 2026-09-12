@@ -11,11 +11,13 @@
 
 pub mod beacon;
 pub mod blob;
+pub mod chaininfo;
 pub mod drand;
 pub mod profile;
 pub mod static_provider;
 
 pub use beacon::{Beacon, BeaconOutcome, FetchError};
+pub use chaininfo::verify_beacon;
 pub use drand::DrandTimelock;
 pub use profile::{BlobHeader, ProfileError};
 pub use static_provider::StaticTimelock;
