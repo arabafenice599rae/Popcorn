@@ -1,0 +1,13 @@
+# The compiler this project builds with, pinned.
+#
+# This is NOT a consensus rule: codegen does not change a Borsh byte or a state root, and
+# CONSENSUS-LOCK.md is where the things that *do* are pinned. It is here for a duller reason
+# that cost a CI run to learn — a floating `stable` means the lint set moves under the project,
+# so a commit that is clean on one machine fails on another with `-D warnings`, having changed
+# nothing. Pinning makes "clippy passes here" mean "clippy passes in CI".
+#
+# `rust-version` in Cargo.toml is a different statement: the oldest compiler the code needs.
+# This is the one the maintainers and CI actually use.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

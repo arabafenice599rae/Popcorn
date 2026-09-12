@@ -73,7 +73,7 @@ pub fn validate_batch(state: &State, txs: Vec<SignedTx>, round: u64) -> Validati
     }
 
     // Deterministic grouping: accounts in key order, transactions in tx_id order.
-    survivors.sort_by(|a, b| a.1.cmp(&b.1));
+    survivors.sort_by_key(|entry| entry.1);
     let mut by_account: BTreeMap<AccountId, Vec<(SignedTx, [u8; 32])>> = BTreeMap::new();
     for (tx, tx_id, signer) in survivors {
         by_account.entry(signer).or_default().push((tx, tx_id));
@@ -135,7 +135,7 @@ pub fn validate_batch(state: &State, txs: Vec<SignedTx>, round: u64) -> Validati
     // The shuffle is defined over a list sorted by ascending tx_id (§3.7), and the block
     // records rejections in the same canonical order.
     valid.sort_by_key(|tx| tx.tx_id());
-    rejected.sort_by(|a, b| a.0.cmp(&b.0));
+    rejected.sort_by_key(|entry| entry.0);
 
     ValidationOutcome { valid, rejected }
 }

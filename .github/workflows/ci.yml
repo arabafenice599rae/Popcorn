@@ -15,15 +15,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # rust-toolchain.toml pins the compiler; `rustup show` installs exactly that one,
+      # components included. See the comment in that file for why it is pinned.
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
 
       # Structural rules that a test cannot express: no unordered collections anywhere near a
       # commitment (§2.3), exact dependency pinning (§13), and the naming rule.
       - name: Structural gates
         run: ./ci/consensus-gates.sh
+
+      # Documentation is split across a dozen pages that cross-reference each other and the
+      # specification's own section anchors. Those rot silently; this makes them rot loudly.
+      - name: Documentation links
+        run: python3 ci/check-docs.py
 
       - name: Formatting
         run: cargo fmt --all -- --check
@@ -51,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v5
         with:
@@ -76,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-go@v5
         with:
@@ -94,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       # §11 requires this measurement before genesis, and the numbers quoted there come from
       # it. A smaller count here keeps CI honest without spending ten minutes on it; the full
@@ -107,7 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       # The committed vector was produced against a real drand round; replaying it must need
       # nothing but the repository. If this job ever needs the network, the claim in §10 that

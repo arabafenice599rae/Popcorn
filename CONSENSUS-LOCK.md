@@ -20,8 +20,13 @@ effect of `cargo update`. Post-genesis, such an upgrade is effectively a new cha
 | | |
 |---|---|
 | Rust edition | 2021 |
-| Minimum toolchain | 1.85 |
+| Minimum toolchain | 1.85 (`rust-version`: the oldest compiler the code needs) |
+| Pinned toolchain | 1.98.1 (`rust-toolchain.toml`: what CI and the maintainers build with) |
 | Arithmetic | `u128` with `U256` intermediates; overflow is a deterministic `Failed`, never a panic or a wrap |
+
+The toolchain pin is **not** a consensus rule — codegen does not change a Borsh byte or a state
+root. It is pinned so the lint set cannot drift under the project: with a floating `stable` and
+`-D warnings`, a commit that is clean on one machine fails on another having changed nothing.
 
 ## Consensus-relevant dependencies
 
