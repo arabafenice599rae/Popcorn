@@ -25,7 +25,7 @@ popcorn — a single-operator deterministic/verifiable execution chain
 USAGE:
     popcorn keygen --out <FILE>
     popcorn genesis --data <DIR> --node-key <FILE> --foundation-key <FILE> [--drand-round <N>]
-    popcorn node    --data <DIR> --node-key <FILE> [--listen <ADDR>]
+    popcorn node    --data <DIR> --node-key <FILE> [--listen <ADDR>] [--no-web]
     popcorn verify  --data <DIR> | --node <URL> [--audit-collection]
     popcorn account --key <FILE>
     popcorn submit  --key <FILE> --node <URL> <ACTION>
@@ -167,6 +167,10 @@ fn node(args: &[String]) -> Result<(), String> {
     let data = PathBuf::from(required(args, "--data")?);
     let node_key_path = PathBuf::from(required(args, "--node-key")?);
     let listen = flag(args, "--listen").unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    // The explorer and wallet are served from the node itself, so the page is same-origin
+    // with the API it signs against. `--no-web` is for operators who want the endpoints
+    // only; it changes nothing a verifier depends on (§13.3).
+    let serve_web = !args.iter().any(|arg| arg == "--no-web");
 
     let node_key = keys::load(&node_key_path).map_err(|e| e.to_string())?;
     let chain = Chain::open(&chain_path(&data)).map_err(|e| e.to_string())?;
@@ -211,6 +215,9 @@ fn node(args: &[String]) -> Result<(), String> {
                 chain.head().height,
                 chain.next_round()
             );
+            if serve_web {
+                println!("explorer and wallet: http://{listen}/");
+            }
         }
 
         // One batch per drand round (§11).
@@ -219,7 +226,7 @@ fn node(args: &[String]) -> Result<(), String> {
         let listener = tokio::net::TcpListener::bind(&listen)
             .await
             .map_err(|e| e.to_string())?;
-        axum::serve(listener, router(api))
+        axum::serve(listener, router(api, serve_web))
             .with_graceful_shutdown(async {
                 let _ = tokio::signal::ctrl_c().await;
                 println!("\nshutting down");

@@ -15,3 +15,4 @@ pub mod mempool;
 pub mod producer;
 pub mod storage;
 pub mod verify;
+pub mod web;

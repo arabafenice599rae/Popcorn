@@ -1,4 +1,4 @@
-[← Docs](README.md) · [Overview](overview.md) · [Architecture](architecture.md) · [DEX](dex.md) · [HTLC](htlc.md) · [Publish](publish.md) · [Staking](staking.md) · [Security](security.md) · [API](api.md) · [Node](running-a-node.md) · **Verification**
+[← Docs](README.md) · [Overview](overview.md) · [Architecture](architecture.md) · [DEX](dex.md) · [HTLC](htlc.md) · [Publish](publish.md) · [Staking](staking.md) · [Security](security.md) · [API](api.md) · [Web](web.md) · [Node](running-a-node.md) · **Verification**
 
 # Verification
 
@@ -70,6 +70,7 @@ Every gate the specification makes a precondition for genesis, and how to run it
 | **Reference executor** | a second implementation, in Python, agrees on order, results, rejections, all five roots and the invariant across 400 scenarios | `python3 reference/differential.py vectors/differential.json` |
 | **Borderline signatures** | the pinned `verify_strict` semantics on 26 edge cases | `python3 reference/signatures.py vectors/signatures.json` |
 | **Cross-language** | Rust, Go and JavaScript read each other's blobs and agree on 19 rejection verdicts | `./interop/run-gate.sh` |
+| **Browser path** | the [page the node serves](web.md) encodes, signs and encrypts all fourteen action kinds exactly as the node reads them | `./web/test/browser-path.sh` |
 | **End-to-end vector** | a real drand round through to `state_root` and a receipt, replayed offline | `cargo test -p popcorn-timelock --test vectors` |
 | **Availability** | what a flood actually costs | `cargo run --release -p popcorn-timelock --example dos_benchmark -- 10000` |
 | **Structural** | no unordered collections near a commitment, exact `=` pinning, the naming rule | `./ci/consensus-gates.sh` |

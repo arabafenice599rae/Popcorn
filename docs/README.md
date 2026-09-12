@@ -22,6 +22,7 @@ Where a page and the specification disagree, the specification is right and the 
 | 🥩 | **[Staking & economy](staking.md)** | Fair launch, halving emission, the O(1) accumulator, and the five buckets every unit lives in |
 | 🛡 | **[Security](security.md)** | Trust model, key separation, censorship accountability, and the measured cost of a flood |
 | 🔌 | **[API](api.md)** | Every endpoint, what it returns, and which ones an auditor needs |
+| 🖥 | **[Explorer & wallet](web.md)** | The front end the node serves: live blocks, accounts, pools, and a wallet that signs and encrypts in your browser |
 | ▶️ | **[Running a node](running-a-node.md)** | Keys, genesis, producing blocks, submitting transactions |
 | ✅ | **[Verification](verification.md)** | How to check the chain yourself, and the gates that must pass before genesis |
 

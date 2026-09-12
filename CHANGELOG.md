@@ -4,6 +4,34 @@ Version history of the POPCORN protocol specification ([`SPEC.md`](SPEC.md)).
 All entries are **pre-genesis**: until genesis is produced, every change is free.
 After genesis, anything listed as consensus-breaking in §13 is effectively a new chain.
 
+## v0.9.3 — explorer and wallet
+
+- **The node now serves its own front end** (`web/`, compiled into the binary; `--no-web`
+  turns it off). An explorer — live blocks, block detail with manifest and rejections,
+  accounts, tokens, pairs, the data board, the five-bucket supply — and a wallet that runs the
+  client flow of §3.2 in the browser: sign with a Solana wallet or a key held in the tab,
+  timelock-encrypt toward a future round, de-armor, submit blind, keep the receipt, then check
+  inclusion against the block rather than against the node's word for it.
+- Serving it from the node is not convenience. The flow puts a signature and an encryption in
+  a browser, so a page fetched from a third party is a page that can be swapped for one that
+  signs something else. Served by the node it is same-origin with the API, loads nothing from
+  any other origin, and says so in a `Content-Security-Policy` with no `unsafe-inline`.
+- **New gate: `web/test/browser-path.sh`.** The page decides what bytes a key signs, which
+  makes it consensus-relevant code however it is served — and a browser that encodes a payload
+  differently does not fail loudly, it signs something nobody asked for. The gate builds one
+  transaction of every one of the fourteen action kinds through the page's own bundle, then
+  has the Rust inspector confirm the bytes re-encode identically and the account id, tx id,
+  signing hash and `verify_strict` all agree, has Rust and Go accept the blob under
+  POPCORN-TLOCK-AGE-V1, decrypts it back to the signed bytes, and checks that an armored blob
+  is still refused. It runs offline against round 1000.
+- §3.2 and §9.1 record the page and its four routes; §13.3 already classified serving as free,
+  and nothing here changes that.
+- Two client-side traps closed while testing it against a live chain: an HTLC passphrase now
+  becomes the 32-byte preimage (hashing a passphrase straight into the hashlock produced an
+  escrow whose preimage was the wrong length, so it could never be claimed — only refunded
+  after expiry), and the default target round moved from two rounds ahead to eight, because a
+  wallet prompt plus a BLS encryption in a tab does not fit in six seconds.
+
 ## v0.9.3 — final coherence (freeze candidate)
 
 - Removed the three stale mentions of accumulator dust that contradicted v0.9.2 (§7.1, the

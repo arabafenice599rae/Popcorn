@@ -216,6 +216,15 @@ encryption too, not just for replay.
   > client strips the PEM wrapper and base64-decodes the body before submitting; the Rust and
   > Go clients emit binary already. The cross-language gate covers this, and
   > `interop/js/interop.mjs` is the three-line reference.
+  > **The node serves the page it expects clients to use** (`web/`, compiled into the binary;
+  > `--no-web` turns it off). This is not consensus — §13.3 classifies serving as free — but
+  > it is not decoration either: this flow puts a signature and an encryption in a browser,
+  > and a page fetched from a third party is a page that can be swapped for one that signs
+  > something else. Served by the node, it is same-origin with the API and loads nothing from
+  > anywhere else. Because the page decides what bytes a key signs, its encoder is covered by
+  > a gate like any other implementation: `web/test/browser-path.sh` builds one transaction of
+  > every action kind through the page's own bundle and checks the bytes, the identity, the
+  > signature and the blob profile against the Rust and Go tools.
 - **Bot client**: an ed25519 keypair in a file plus an HTTP client; encryption with tlock
   (Rust), tlock-js (JS/TS) or drand/tlock (Go) — all interoperable.
 
@@ -1091,6 +1100,7 @@ transferable while staked. Staking is the only way to take part in emission: it 
 | `GET` | `/chain/export?from={h}` | Block stream for replay |
 | `GET` | `/params` | Parameters + drand chain-info + node pubkey + foundation pubkey |
 | `WS` | `/stream` | Block push |
+| `GET` | `/`, `/app.js`, `/app.css`, `/logo.jpg` | The explorer and wallet of §3.2, compiled into the binary. Not consensus (§13.3): `--no-web` removes these four and nothing a verifier needs |
 
 ### 9.2 Signed submission receipt + collection commitment
 

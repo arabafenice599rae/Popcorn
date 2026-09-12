@@ -70,6 +70,22 @@ These are free to change under §13.3, and changing them cannot fork the chain: 
 parsing and the HTTP client used by `popcorn submit` are written out in-tree rather than taken
 as dependencies, because §2 treats the dependency list as part of the audit surface.
 
+### The browser client
+
+The explorer and wallet in [`web/`](web/) are served by the node and are not consensus either —
+but the distinction is finer than it looks. The page **produces** consensus data: it decides
+what bytes a key signs and what blob is submitted, so it has to agree with the node exactly,
+the way any other implementation does. What is free is everything around that: the framework
+(none), the layout, the endpoints it happens to read.
+
+Its dependencies are pinned by `web/package-lock.json` — `tlock-js` for the age/tlock blob,
+`@noble/hashes` for BLAKE3 and SHA-256, `@noble/curves` for ed25519 when the key is held in the
+tab rather than in a wallet, and `esbuild` to bundle. The bundle in `web/dist/` is committed and
+compiled into the binary, and `web/dist/build.json` records the digest of every input so a
+stale bundle fails CI instead of shipping. Agreement with the node is checked the same way
+agreement between Rust, Go and Python is: `web/test/browser-path.sh`, one transaction per
+action kind, every byte compared.
+
 ## Before genesis
 
 The version numbers above must be re-read from `Cargo.lock` and frozen at the moment genesis is

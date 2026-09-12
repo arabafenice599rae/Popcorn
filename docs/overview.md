@@ -1,4 +1,4 @@
-[← Docs](README.md) · **Overview** · [Architecture](architecture.md) · [DEX](dex.md) · [HTLC](htlc.md) · [Publish](publish.md) · [Staking](staking.md) · [Security](security.md) · [API](api.md) · [Node](running-a-node.md) · [Verification](verification.md)
+[← Docs](README.md) · **Overview** · [Architecture](architecture.md) · [DEX](dex.md) · [HTLC](htlc.md) · [Publish](publish.md) · [Staking](staking.md) · [Security](security.md) · [API](api.md) · [Web](web.md) · [Node](running-a-node.md) · [Verification](verification.md)
 
 # Overview
 

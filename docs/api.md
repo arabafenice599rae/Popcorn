@@ -1,4 +1,4 @@
-[← Docs](README.md) · [Overview](overview.md) · [Architecture](architecture.md) · [DEX](dex.md) · [HTLC](htlc.md) · [Publish](publish.md) · [Staking](staking.md) · [Security](security.md) · **API** · [Node](running-a-node.md) · [Verification](verification.md)
+[← Docs](README.md) · [Overview](overview.md) · [Architecture](architecture.md) · [DEX](dex.md) · [HTLC](htlc.md) · [Publish](publish.md) · [Staking](staking.md) · [Security](security.md) · **API** · [Web](web.md) · [Node](running-a-node.md) · [Verification](verification.md)
 
 # API
 
@@ -22,6 +22,7 @@
 | `GET` | `/chain/export?from={h}` | The block stream. This alone re-derives every state root |
 | `GET` | `/params` | Genesis parameters, drand chain info, node and foundation public keys |
 | `WS` | `/stream` | Blocks pushed as they are produced |
+| `GET` | `/` · `/app.js` · `/app.css` · `/logo.jpg` | The [explorer and wallet](web.md), compiled into the binary. `--no-web` removes these four — and nothing a verifier needs |
 
 ## `/tx` — and the receipt you should keep
 

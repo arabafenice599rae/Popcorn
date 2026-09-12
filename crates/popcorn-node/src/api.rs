@@ -36,7 +36,20 @@ pub struct NodeApi {
     pub blocks: broadcast::Sender<Block>,
 }
 
-pub fn router(node: Arc<NodeApi>) -> Router {
+/// The API routes, plus the explorer and wallet unless the operator turned them off.
+///
+/// `serve_web` is an operational switch, not a consensus one (§13.3): a node that serves no
+/// page still serves every endpoint a verifier needs.
+pub fn router(node: Arc<NodeApi>, serve_web: bool) -> Router {
+    let api = api_router(node);
+    if serve_web {
+        api.merge(crate::web::routes())
+    } else {
+        api
+    }
+}
+
+fn api_router(node: Arc<NodeApi>) -> Router {
     Router::new()
         .route("/tx", post(submit_tx))
         .route("/head", get(head))

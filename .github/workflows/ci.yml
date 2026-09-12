@@ -94,6 +94,30 @@ jobs:
       - name: Run the cross-language gate
         run: ./interop/run-gate.sh
 
+  web:
+    name: browser path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The wallet runs in a tab and decides what bytes the user's key signs, so it is
+      # consensus-relevant code. This builds one transaction of every kind through the page's
+      # own bundle and has the Rust and Go tools confirm they agree about the bytes, the
+      # identity and the blob profile. It also fails if the committed bundle is stale — the
+      # node compiles `web/dist` in, so a stale bundle would ship a page nobody tested.
+      - name: Run the browser-path gate
+        run: ./web/test/browser-path.sh
+
   availability:
     name: blind-collection worst case
     runs-on: ubuntu-latest
