@@ -1,0 +1,16 @@
+{
+  "sources": {
+    "src/actions.js": "7e0ab76608a225ccbe15b034a554d148022d4561f48f4c6a65181f2ba873140f",
+    "src/api.js": "bede6de4108f6f20e5bac8e4c20270d0ce5b2da023d325e13faaf3792b1a917d",
+    "src/app.js": "847b4c2ede14d7b8826938bb7f820285cf5b46ada152afae53fa2c3f0a285c86",
+    "src/borsh.js": "4911bf8176e7fd0901a6fb5ca5b216e065a9d5da1bd181994804c9d03d961fae",
+    "src/index.js": "d6d26f96591018010fe0ff69754b69f72a2c776f3815c5d491da340c1e344eb7",
+    "src/popcorn.js": "9334a2a2804a76eb69c9a8f0b9c57ba5ffd6be2fe750824b433af7dee602cf3a",
+    "src/ui.js": "1a3e70e18ebbdb4cf9e5215162f7297bcc4a47a7ce91164ac1c8741a475ba171",
+    "src/wallet.js": "433e0a1db544d1d98b083e46df10d7206d68b1f355125981c2b2e5beedc595b3",
+    "public/index.html": "03f6071bc933e6cf286e78359210d325a75f62c6fdcbbc314114baa7c2b99e9d",
+    "public/app.css": "d4f88cbd2302a53f2a62f4523c2059ad75089f76c9cf1158e5003ec1e64f2125",
+    "package-lock.json": "f1df98fd05b95a6fe7d1e06d6c5e6bd515d561904419ac44af3885c9484866a9"
+  },
+  "digest": "2951da621894a3aa5c11f2f79d3f21962f8fcbd10281c48028edc98d5575179f"
+}

@@ -1,0 +1,216 @@
+{
+  "accepted_count": 1,
+  "cases": [
+    {
+      "accepted": true,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "valid",
+      "note": "a well-formed signature",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2b2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "wrong_message",
+      "note": "one bit flipped in the message",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "corrupted_r",
+      "note": "one bit flipped in R",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a835cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "corrupted_s",
+      "note": "one bit flipped in s",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc07"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "s_equals_group_order",
+      "note": "s == L, non-canonical",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "s_above_group_order",
+      "note": "s == L + 1",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3eed3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "s_all_ones",
+      "note": "s is every bit set",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_0",
+      "note": "A is a point of order dividing 8",
+      "public_key": "0100000000000000000000000000000000000000000000000000000000000000",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_0",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "0100000000000000000000000000000000000000000000000000000000000000681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_1",
+      "note": "A is a point of order dividing 8",
+      "public_key": "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_1",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_2",
+      "note": "A is a point of order dividing 8",
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_2",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "0000000000000000000000000000000000000000000000000000000000000000681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_3",
+      "note": "A is a point of order dividing 8",
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000080",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_3",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "0000000000000000000000000000000000000000000000000000000000000080681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_4",
+      "note": "A is a point of order dividing 8",
+      "public_key": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_4",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_5",
+      "note": "A is a point of order dividing 8",
+      "public_key": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_5",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_6",
+      "note": "A is a point of order dividing 8",
+      "public_key": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_6",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_public_key_7",
+      "note": "A is a point of order dividing 8",
+      "public_key": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "small_order_r_7",
+      "note": "R is a point of order dividing 8",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "non_canonical_public_key",
+      "note": "A encodes y >= p",
+      "public_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "signature": "a935cedf129d902002b3efee352a200af5f20f874ccaec47f19fb7fcc9d9d5e3681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "non_canonical_r",
+      "note": "R encodes y >= p",
+      "public_key": "66be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a",
+      "signature": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f681cb352ed22ee85c719069d2ed8712b4bf4b4aa296b345a7ed0e342bc4dcc06"
+    },
+    {
+      "accepted": false,
+      "message": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+      "name": "zero_everything",
+      "note": "all zeroes",
+      "public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "signature": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "note": "Borderline Ed25519 cases (SPEC.md §3.1). `accepted` is the verdict of the pinned ed25519-dalek verify_strict; any implementation claiming to replay POPCORN must agree on every one.",
+  "rejected_count": 25,
+  "semantics": "ed25519-dalek verify_strict: canonical s, no small-order A or R, cofactorless equation"
+}

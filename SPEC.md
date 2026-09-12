@@ -1,134 +1,354 @@
-# POPCORN — Specifica Tecnica v0.9.3 (freeze candidate)
+<p align="center">
+  <img src="assets/popcorn-logo.jpg" alt="POPCORN" width="560">
+</p>
 
-**Rename (pre-genesis)**: la chain si chiama **POPCORN** (già ARENA-CHAIN). Rinominate coerentemente anche le costanti di consenso che contengono il nome: `SIGN_DOMAIN = "popcorn-v1"` (10 byte), dominio ricevuta `"popcorn-receipt-v1"`, profili POPCORN-TLOCK-AGE-V1 / POPCORN-CONSENSUS / POPCORN-V2-MATH. Pre-genesis il rename è libero; post-genesis sarebbe stato consensus-breaking (i domini entrano nei preimage firmati). **Il nome è un identificativo di consenso, non una variabile di marketing: qualunque occorrenza futura di ARENA/arena-chain, in qualunque forma, è stale per costruzione.**
+<h1 align="center">POPCORN — Technical Specification</h1>
 
-Chain a nodo unico con economia nativa a **supply massima finita**.
-
-**Changelog v0.9.3 — coerenza finale**: eliminate le 3 menzioni stale della dust che contraddicevano la v0.9.2 (§7.1, §7.2 `native_emitted`, §13); pinnati i 3 casi residui — `amount > 0` statico per `Transfer`/`Stake`/`Unstake`, sotto-ordine del passo 4 (`PubkeyMismatch` prima di `NonceExhausted`), `amount_out ≥ reserve_out` in exact-out ⇒ `Failed(SlippageExceeded)`; `CONSENSUS_VERSION` in forma a tre campi 16-bit; mirror dei blob promosso da opzionale a **obbligo operativo** dell'operatore (fuori consenso), necessario perché l'audit della collection sia praticabile.
-
-**Changelog v0.9.2 — staking = Synthetix letterale (fix del P0 su `reserved ≥ Σ pending`)**: la disequazione dichiarata in v0.9.1 era falsa (controesempio: la dust girata a foundation era esattamente ciò che i pending avrebbero reclamato → primo claim in underflow → halt). Fix per trascrizione **letterale della matematica auditata di Synthetix StakingRewards**: (1) `staking_reserved += staker_share` **intero** — la dust d'accumulatore non esiste più (foundation capped ESATTAMENTE al 15% nominale); (2) `reward_debt` (unità) sostituito da **`paid_acc`** (snapshot dell'accumulatore, il `userRewardPerTokenPaid` di Synthetix) con `pending = ⌊staked × (acc − paid_acc) / P⌋` — **una sola floor sulla differenza**, sempre ≤ entitlement vero. Solvibilità per costruzione: ogni batch aggiunge `staker_share` sia a `reserved` sia al monte-entitlement; ogni settle paga ≤ entitlement maturato ⇒ `reserved ≥ Σ pending ≥ 0`, sempre. Gate esteso: il property test asserisce anche `reserved ≥ Σ pending ≥ 0` dopo ogni operazione (la sola uguaglianza a 4 bucket non intercettava il bug). Più 7 incoerenze chiuse: `CONSENSUS_VERSION` allineata, `ROUND_TOO_LATE` chiarito come rimosso, `SupplyOutOfRange` dichiarato unreachable, regola `SelfTransferNoop` scritta, posizione di `NonceExhausted` pinnata, testo legacy pre-age sostituito, typo changelog v0.8.4.
-
-**Changelog v0.9.1 — chiusura matematica dei due P0 + formalizzazioni P1/P2**: (P0-A) nuovo bucket contabile **`staking_reserved`** in `global`: l'invariante monetario a quattro bucket è ora un'uguaglianza ESATTA per costruzione (il vecchio invariante con Σ pending era matematicamente falso per doppia floor — controesempio in §8); due strati di rounding distinti (dust d'accumulatore → foundation; residuo per-account → passività del protocollo, mai bruciato né attribuito); property test consensus-grade come gate. (P0-B) fairness riformulata come ciò che è dimostrabile: **blindness pre-beacon + receipt accountability + ordinamento deterministico + verificabilità dello state root** — il consenso NON vincola temporalmente la chiusura della raccolta al beacon (la vecchia §5.1 dichiarava A implementando B); la protezione per-blob è la ricevuta ottenuta prima della deadline (policy client, non consenso). (P1) `GENESIS_DRAND_ROUND` e mapping normativo `round(h) = G + h − 1` con **empty-block catch-up** (mai skip di round: il wall-clock non entra nel consenso, le finestre HTLC restano intere); profilo **POPCORN-TLOCK-AGE-V1**; tabelle normative dei discriminanti `RejectReason`/`FailReason`; `AddLiquidity` con `amount_actual`; sequenza exact-out esplicita; `unusable` come *derived evidence* con derivazione normativa; annex CONSENSUS-LOCK per le versioni esatte. (P2) root su liste vuote; ricevuta Borsh-canonica; ordinamento canonico dei feed Publish; encoding del singleton `global`; tassonomia errori beacon (`ROUND_TOO_LATE` RIMOSSO dal consenso: il ritardo è telemetria, non categoria del ledger); overflow per-caso incluso `NonceExhausted`; tie-break tx_id formale; scope del k-invariant; wording su node-key compromise.
-
-**Changelog v0.9 — il consenso diventa normativo**: (1) nuova **§13 POPCORN-CONSENSUS**: ogni semantica che può influenzare lo state root è definita algoritmicamente con versione pinnata, `CONSENSUS_VERSION` esplicita e classificazione dei cambiamenti breaking/non-breaking — il determinismo è normativo, non emergente; (2) firma ed25519 = **`ed25519_dalek::verify_strict` a versione pinnata**, regola di consenso (una semantica scelta e congelata; ZIP-215 solo se mai servirà verifica batch); (3) **zero collezioni non ordinate nel commitment** (policy architetturale, non solo patch hashbrown ≥0.15.1) + test di canonicità obbligatorio; (4) **`TimelockProvider`** come unica interfaccia verso tlock/drand con **policy consensus-defined per beacon mancante/invalido**; (5) dichiarato: il timelock è fair ordering a orizzonte breve, MAI conservazione a lungo termine (`BLOB_ROUND_HORIZON`); (6) migrazione a alloy-primitives declassata a P3 post-freeze; (7) obbligo di **test vector consensus-grade** e reference executor indipendente; avanzamento dello stream XOF al rifiuto reso esplicito.
-
-**Changelog v0.8.4 — protocol freeze audit**: (🔴1) formato blob = **age con recipient tlock** (`tlock_age` vendorizzato): la primitiva raw tlock cifra 16 byte, e l'ibrido chiave+AEAD che la spec descriveva a mano è esattamente ciò che il formato age standardizza — via il layer custom, interop Rust↔Go↔JS garantita dal formato condiviso, test vector cross-language gate di CI; (🔴2) superficie DoS della raccolta cieca congelata come **requisiti operativi fuori consenso** + benchmark worst-case obbligatorio pre-genesis; (🟠) semantica foundation con `total_staked == 0` riscritta senza ambiguità (15% nominale = 100% dell'emissione effettiva di quel batch); (🟠) regole di validazione AMM esplicitate; (🟡) `undecryptable` rinominato **`unusable`** (copre tlock/AEAD/decode falliti — un Borsh-fail è decifrabile ma inutilizzabile); (🟡) `collection_root` impegna l'**insieme** dei blob distinti, non la molteplicità delle submission; conteggio dipendenze corretto (10).
-
-**Changelog v0.8.3 — fix contabili da review**: (1) fee prelevate in **fase unica** dopo l'ordinamento e prima dell'esecuzione — il `min()` sparisce, ogni tx paga sempre la fee piena, chiuso il bypass "svuoto il saldo con la prima tx e le altre girano gratis"; (2) §8 impone **intermedie U256** (S×acc sfora u128 nel caso dust-staker; i risultati rientrano in u128 per i bound di supply); (3) quattro pin: indice hashlock = cache derivabile fuori dallo state root; auto-settlement DOPO l'esecuzione (claim nello stesso batch vince, il publish diventa no-op); materializzazione pubkey solo su tx eseguite (mai su rejected); Borsh-fail = unusable. Note minori: griefing HtlcDuplicateHashlock, timestamp ricevuta non impegnato, manifest come insieme, Unstake a saldo zero.
-
-**Changelog v0.8.2 — collection commitment (commit-then-decrypt)**: il nodo si impegna sull'insieme dei blob ricevuti PRIMA di poterli decifrare — `collection_root` nell'header, `blob_manifest` e lista `unusable` nel blocco, contabilità completa manifest → txs/rejected/unusable verificabile da chiunque col beacon pubblico. La censura selettiva post-decrypt diventa o auto-contraddizione firmata (ricevuta vs manifest) o menzogna pubblicamente falsificabile (unusable smentibile). Precedente: commit-then-decrypt di Shutter e accountability delle inclusion list Ethereum, adattati al nodo unico. Residuo dichiarato: rifiuto cieco all'ingresso (nessuna ricevuta emessa).
-
-**Changelog v0.8.1 — auto-settlement HTLC via Publish**: alla chiusura del batch, ogni `Publish` con `data` di esattamente 32 byte il cui `sha256(data)` corrisponde all'hashlock di un HTLC aperto regola automaticamente quell'HTLC verso il recipient — il preimage diventa carrier-independent (chiunque può consegnarlo, il recipient può essere offline) e la censura del settlement richiede censura cieca di massa, auto-incriminante via ricevute §9.2. `HtlcClaim` resta come via diretta. Indice `hashlock → htlc_id` nello stato. Caso limite dichiarato: l'inclusione resta l'unico cancello (limite del modello, §1).
-
-**Changelog v0.8 — HTLC (bridge user-side non-custodial)**: tre azioni `HtlcLock`/`HtlcClaim`/`HtlcRefund` per swap atomici cross-chain portati dagli utenti; hashlock **SHA-256** (lingua franca Bitcoin/Lightning/EVM/Solana — unico punto del protocollo non-blake3, per interoperabilità), preimage fisso 32 byte; refund invocabile da chiunque (garbage collection); vita massima dell'HTLC; tabella `htlcs` nello state root e invariante monetario esteso; note di sicurezza da letteratura (MAD-HTLC/bribery, stagger dei timeout, free option).
-
-**Changelog v0.7.2 — fix di protocollo**: bootstrap account riparato (`signer_pubkey` nel `SignedTx`, modello P2PKH: la chiave si materializza alla prima firma — ed25519 non ha key recovery); prova di uniformità di `uniform(n)` inserita a commento (l'algoritmo era corretto); guard di liquidità su `Stake` (resta sempre una fee per uscire); `rejected_root` impegna anche il `RejectReason`; ricevuta di submit riqualificata come *evidence of receipt*; pinning d'interoperabilità drand/tlock con test vector cross-language; commitment del blocco esplicitato (si firma l'Header). Ledger verificabile, equità di ordinamento per costruzione (timelock + shuffle da beacon), DEX interno con meccanica Uniswap V2 estesa (multi-hop, fee tier, exact-out). Utenti: bot **e** persone (wallet Solana via firma messaggi).
-
-**Changelog v0.7 — fair launch**: `GENESIS_SUPPLY = 0` (nessuna allocazione al creatore); quando `total_staked == 0` la quota staker **non viene emessa** (non nasce, né a foundation né bruciata) — la foundation è capped al 15% dell'emissione dal primo batch; supply massima ≈ 21,02 M; bootstrap via quota foundation dal blocco 1.
-
-**Changelog v0.6 — dati utente e fee Solana-level**: nuova azione `Publish` (bacheca dati per oracoli portati dagli utenti — nessun effetto sullo stato, il dato vive nel blocco); `FEE_TX` allineata a Solana (5.000 unità = 0,000005 nativi); sovrapprezzo per byte sui publish oltre la soglia gratuita.
-
-**Changelog v0.5.2 — chiusura contabile pre-implementazione**: staking dust contabilizzata (→ foundation); definizione congelata di `native_emitted`; momento dell'emissione fissato (chiusura batch, non spendibile nello stesso); pipeline di validazione statica ordinata con tie-break dei duplicati; identità di transazione dichiarata; cap effettivo in forma esatta; dicitura fee corretta.
-
-**Changelog v0.5.1 — rigore contabile**: cap della supply definito come limite superiore (l'emissione effettiva la calcola il verificatore batch per batch); `pending` dichiarato passività contabile derivata; fee-solvency in validazione statica + fallback runtime; staking della foundation dichiarato esplicitamente legittimo.
-
-**Changelog v0.5 — nuova economia e accesso**:
-- **Rimossi faucet, inviti e `CreateAccount`**: account impliciti alla prima ricezione di fondi (modello Ethereum).
-- **Foundation pool** al genesis con `GENESIS_SUPPLY` (account pubblico come ogni altro).
-- **Emissione per batch con halving** (stile Bitcoin): supply totale finita in forma chiusa, split 85/15 staker/foundation.
-- **Fee bruciate** (stile EIP-1559): niente più split 50/50.
-- **Compatibilità wallet Solana** (Phantom/Solflare via `signMessage`): definito il flusso client e il dominio di firma.
-
-**v0.4**: semantiche congelate (nonce+shuffle, failure, ID domain-separated, state root, header). **v0.3**: tlock+drand_core vendorizzati, redb, shuffle su blake3 XOF, beacon per round multi-endpoint. **v0.2**: multi-hop, fee tier, exact-out.
+<p align="center">
+  <strong>v0.9.3 (freeze candidate)</strong> · pre-genesis · <code>CONSENSUS_VERSION = 0x0000_0009_0002</code>
+</p>
 
 ---
 
-## 1. Modello di fiducia
+A **single-node chain** with a native economy and a **finite maximum supply**. Honest
+classification: a *single-operator deterministic/verifiable execution chain*. There is no
+distributed consensus and no P2P layer — trust is replaced by **verifiability**.
 
-- **Un solo nodo** (l'operatore). Nessun consenso distribuito, nessun P2P. Classificazione onesta: *single-operator deterministic/verifiable execution chain*.
-- Fiducia sostituita da **verificabilità**: chiunque scarica la catena e ri-esegue lo stato da zero, inclusa **ogni emissione e ogni burn** (l'offerta monetaria è interamente ricostruibile dal replay).
-- **Le quattro garanzie reali (v0.9.1)** — POPCORN non promette censorship resistance; promette, e può dimostrare: (1) **blindness pre-beacon**: il timelock impedisce all'operatore di conoscere il plaintext di qualunque blob prima che il beacon del round esista; (2) **ordinamento deterministico**: l'ordine di esecuzione è funzione del beacon, mai scelta dell'operatore; (3) **receipt accountability**: per ogni blob ricevutato, l'omissione dal manifest è una contraddizione tra due firme del nodo; (4) **verificabilità dello state root**: qualunque scorrettezza contabile o di esecuzione diverge nel replay. L'operatore non può riscrivere la storia, emettere fuori formula o alterare la supply senza divergenza di `state_root`.
-- **Ciò che il consenso NON garantisce (dichiarato)**: il nodo non è matematicamente obbligato a chiudere la raccolta prima del beacon — può attendere il beacon, decifrare e poi selezionare cosa manifestare, producendo un blocco formalmente valido. La protezione contro questa finestra è per-blob: la **ricevuta ottenuta prima della deadline** (§9.2). POPCORN fornisce accountability forte per i blob per i quali il nodo ha emesso una ricevuta, **non una prova crittografica universale della ricezione di ogni pacchetto inviato**: è il limite scelto del modello single-operator, non un difetto nascosto.
-- L'operatore **può**: censurare tx (rilevabile via ricevuta firmata §9.2, non impedibile) e dispone della chiave dell'account `FOUNDATION` — i cui movimenti sono però pubblici e tracciati come quelli di chiunque.
-- **Chiavi separate (congelato)**: la **node key** (firma i blocchi, hot sul server) e la **foundation key** (custodisce valore, fredda, offline) sono chiavi ed25519 **distinte**, entrambe dichiarate nel genesis. La node key non controlla fondi; la foundation key non firma blocchi. Compromissione della node key (v0.9.1): non consente di spendere fondi, ma consente di produrre una **fork validamente firmata** — la divergenza è pubblicamente rilevabile, ma la selezione della storia canonica resta una proprietà del modello single-operator, non protetta da consenso distribuito (mitigazioni operative: mirror esterni timestampati, osservatori che archiviano gli header). Compromissione della foundation key: perdita dei fondi foundation, ledger integro.
-- La vendita/distribuzione del token nativo contro asset esterni (SOL, fiat, …) avviene **off-chain ed è fuori protocollo**: la chain non custodisce asset di altre reti (nessun bridge).
+**Naming.** The chain is called **POPCORN** (formerly ARENA-CHAIN). The name is a
+**consensus identifier, not a marketing variable**: it enters signed preimages
+(`SIGN_DOMAIN = "popcorn-v1"`, receipt domain `"popcorn-receipt-v1"`, the
+POPCORN-TLOCK-AGE-V1 / POPCORN-CONSENSUS / POPCORN-V2-MATH profiles). Renaming is free
+pre-genesis; post-genesis it would have been consensus-breaking. Any future occurrence of
+ARENA / arena-chain, in any form, is stale by construction.
+
+Version history lives in [`CHANGELOG.md`](CHANGELOG.md).
+
+## Contents
+
+- [0. About this document](#0-about-this-document)
+- [1. Trust model](#1-trust-model)
+- [2. Dependencies](#2-dependencies)
+- [3. Cryptographic primitives and clients](#3-cryptographic-primitives-and-clients)
+- [4. Identifiers and data formats](#4-identifiers-and-data-formats)
+- [5. Batch lifecycle](#5-batch-lifecycle)
+- [6. AMM math — POPCORN-V2-MATH](#6-amm-math--popcorn-v2-math)
+- [7. Economics](#7-economics)
+- [8. Staking — O(1) distribution](#8-staking--o1-distribution)
+- [9. Node API](#9-node-api)
+- [10. Third-party verification](#10-third-party-verification)
+- [11. Protocol parameters](#11-protocol-parameters)
+- [12. Declared out of scope](#12-declared-out-of-scope)
+- [13. POPCORN-CONSENSUS — normative definition](#13-popcorn-consensus--normative-definition)
+- [14. Implementation clarifications](#14-implementation-clarifications)
 
 ---
 
-## 2. Dipendenze
+## 0. About this document
 
-Tutto Rust, un solo binario, **zero codice nativo C/C++**.
+**MUST**, **MUST NOT**, **SHOULD** and **MAY** carry their RFC 2119 meaning. Everything
+labelled *frozen* is settled: changing it post-genesis is consensus-breaking per §13.
 
-### 2.1 Crate esterni (10 — serde e serde_json contati separatamente)
+Three classes of statement appear here, and they are never interchangeable:
 
-| Crate | Ruolo | Funzioni/tipi usati | Stato audit |
+| Class | Meaning |
+|---|---|
+| **Consensus rule** | Affects the state root. Every implementation MUST reproduce it bit for bit. |
+| **Operational requirement** | Binds the operator, not the ledger. Violating it is visible but does not fork the chain. |
+| **Client policy** | Binds nobody. It is the rational behaviour of a participant given what consensus does and does not guarantee. |
+
+Conflating the three is how protocols end up promising what they do not deliver; §1 and §5.1
+exist precisely to keep them apart.
+
+---
+
+## 1. Trust model
+
+- **One node** (the operator). No distributed consensus, no P2P.
+- Trust is replaced by **verifiability**: anyone downloads the chain and re-executes state
+  from zero, **including every emission and every burn** — the money supply is fully
+  reconstructible from replay.
+- **Separate keys (frozen).** The **node key** (signs blocks, hot on the server) and the
+  **foundation key** (holds value, cold, offline) are **distinct** ed25519 keys, both
+  declared in genesis. The node key controls no funds; the foundation key signs no blocks.
+- Selling or distributing the native token against external assets (SOL, fiat, …) happens
+  **off-chain and outside the protocol**: the chain custodies no other network's assets
+  (no bridge).
+
+### 1.1 The four real guarantees
+
+POPCORN does not promise censorship resistance. It promises, and can prove:
+
+1. **Pre-beacon blindness** — the timelock prevents the operator from learning the plaintext
+   of any blob before the round's beacon exists.
+2. **Deterministic ordering** — execution order is a function of the beacon, never an
+   operator choice.
+3. **Receipt accountability** — for any receipted blob, omission from the manifest is a
+   contradiction between two signatures by the same node.
+4. **State root verifiability** — any accounting or execution incorrectness diverges under
+   replay.
+
+The operator cannot rewrite history, emit outside the formula, or alter supply without a
+`state_root` divergence.
+
+### 1.2 What consensus does NOT guarantee (declared)
+
+The node is not mathematically forced to close collection before the beacon: it MAY wait for
+the beacon, decrypt, and only then choose what to manifest, producing a formally valid block.
+Protection against that window is **per-blob**: the **receipt obtained before the deadline**
+(§9.2).
+
+POPCORN provides strong accountability for blobs the node has receipted — **not a universal
+cryptographic proof that every packet ever sent was received**. That is the chosen limit of
+the single-operator model, not a hidden defect.
+
+The operator **can** censor transactions (detectable via the signed receipt of §9.2, not
+preventable) and holds the key to the `FOUNDATION` account — whose movements are public and
+traced like anyone else's.
+
+### 1.3 Key compromise
+
+- **Node key compromised**: cannot spend funds, but can produce a **validly signed fork**.
+  The divergence is publicly detectable; choosing the canonical history remains a property of
+  the single-operator model, not something distributed consensus protects here. Operational
+  mitigations: timestamped external mirrors, observers archiving headers.
+- **Foundation key compromised**: foundation funds are lost, the ledger stays intact.
+
+---
+
+## 2. Dependencies
+
+All Rust, a single binary, **zero native C/C++ code**.
+
+### 2.1 External crates (10 — `serde` and `serde_json` counted separately)
+
+| Crate | Role | Items used | Audit status |
 |---|---|---|---|
-| `tokio` | Runtime async | `#[tokio::main]`, `tokio::spawn`, `tokio::time::interval` | Battle-tested |
+| `tokio` | Async runtime | `#[tokio::main]`, `tokio::spawn`, `tokio::time::interval` | Battle-tested |
 | `axum` | HTTP/WebSocket server | `Router`, `routing::{get, post}`, `extract::{State, Json, Path}`, `WebSocketUpgrade` | Battle-tested |
-| `ed25519-dalek` v2 | Firme account e blocchi | `SigningKey`, `VerifyingKey`, `Signature`, `Signer::sign`, `Verifier::verify` | Audit curve25519-dalek (2023) |
-| `blake3` | Hashing + XOF | `blake3::hash`, `Hasher::{new, update, finalize, finalize_xof}`, `OutputReader::fill` | Impl. ufficiale degli autori |
-| `borsh` | Serializzazione canonica | `BorshSerialize`, `BorshDeserialize`, `borsh::to_vec`, `borsh::from_slice` | Battle-tested (NEAR, Solana) |
-| `age` | Formato del blob cifrato (usato via `tlock_age`) | cifratura/decifratura del payload nel formato age (STREAM ChaCha20-Poly1305 interno) | Formato pubblicamente specificato, implementazione battle-tested; interop = proprietà del formato |
-| `sha2` | Solo hashlock HTLC (§7.6, interop cross-chain) | `Sha256::digest` | RustCrypto, famiglia coperta da audit NCC (2020) |
-| `primitive-types` | U256 per AMM | `U256::{from, checked_mul, checked_div, integer_sqrt}` | Battle-tested (Parity) |
-| `redb` | Storage (single-file, ACID, pure Rust) | `Database::create`, `TableDefinition`, `begin_write`, `begin_read`, `open_table`, `insert`, `get`, `commit` | Formato stabile, mantenuto, fuzzing continuo |
-| `serde` + `serde_json` | Solo layer API (mai per hashing/stato) | derive `Serialize/Deserialize` | Battle-tested |
+| `ed25519-dalek` v2 | Account and block signatures | `SigningKey`, `VerifyingKey`, `Signature`, `Signer::sign`, `verify_strict` | curve25519-dalek audit (2023) |
+| `blake3` | Hashing + XOF | `blake3::hash`, `Hasher::{new, update, finalize, finalize_xof}`, `OutputReader::fill` | Official implementation by the authors |
+| `borsh` | Canonical serialization | `BorshSerialize`, `BorshDeserialize`, `borsh::to_vec`, `borsh::from_slice` | Battle-tested (NEAR, Solana) |
+| `age` | Encrypted blob format (used through `tlock_age`) | payload encryption/decryption in the age format (internal STREAM ChaCha20-Poly1305) | Publicly specified format, battle-tested implementation; interop is a property of the format |
+| `sha2` | HTLC hashlocks only (§7.6, cross-chain interop) | `Sha256::digest` | RustCrypto, family covered by the NCC audit (2020) |
+| `primitive-types` | U256 for the AMM | `U256::{from, checked_mul, checked_div, integer_sqrt}` | Battle-tested (Parity) |
+| `redb` | Storage (single file, ACID, pure Rust) | `Database::create`, `TableDefinition`, `begin_write`, `begin_read`, `open_table`, `insert`, `get`, `commit` | Stable format, maintained, continuous fuzzing |
+| `serde` + `serde_json` | API layer only (never for hashing or state) | `Serialize`/`Deserialize` derives | Battle-tested |
 
-### 2.2 Crate vendorizzati nel workspace (2)
+### 2.2 Crates vendored in the workspace (3)
 
-| Crate | Origine | Motivo |
+| Crate | Origin | Rationale |
 |---|---|---|
-| `tlock` | thibmeu/tlock-rs 0.0.5 (MIT, ~750 SLoC) | Upstream fermo dal 2024; protocollo congelato → fork interno pinnato, ispezionabile. **Non auditato**; schema peer-reviewed, interop con drand/tlock Go |
-| `drand_core` | thibmeu/drand-rs 0.0.16 (MIT, ~1.500 SLoC) | Come sopra. Verifica BLS contro chain-info pinnata; unchained/G1 |
-| `tlock_age` | thibmeu/tlock-rs (MIT) | Il formato del blob: age con recipient tlock. La primitiva raw `tlock` cifra 16 byte (la file key); `tlock_age` la usa dentro il formato age per payload arbitrari — è l'ibrido "chiave timelock + AEAD" standardizzato, interoperabile con drand/tlock Go e tlock-js |
+| `tlock` | thibmeu/tlock-rs (MIT, ~750 SLoC) | Upstream idle since 2024; protocol frozen → pinned internal fork, inspectable. **Unaudited**; peer-reviewed scheme, interop with drand/tlock Go |
+| `drand_core` | thibmeu/drand-rs (MIT, ~1,500 SLoC) | As above. BLS verification against pinned chain-info; unchained/G1 |
+| `tlock_age` | thibmeu/tlock-rs (MIT) | The blob format: age with a tlock recipient. The raw `tlock` primitive encrypts 16 bytes (the file key); `tlock_age` uses it inside the age format for arbitrary payloads — the standardized "timelock key + AEAD" hybrid, interoperable with drand/tlock Go and tlock-js |
 
-Funzioni: `tlock::encrypt(&mut dst, src, &pubkey, round)`, `tlock::decrypt(&mut dst, src, &signature)`; `drand_core::HttpClient`, `chain_info()`, `get(round)`, `ChainInfo::public_key()`, `Beacon::{signature(), round()}`.
+Functions: `tlock::encrypt(&mut dst, src, &pubkey, round)`, `tlock::decrypt(&mut dst, src, &signature)`; `drand_core::HttpClient`, `chain_info()`, `get(round)`, `ChainInfo::public_key()`, `Beacon::{signature(), round()}`.
 
-**Regole ferree**: (a) tutto ciò che entra in un hash o nello stato passa da Borsh, mai JSON; (b) il blob è formato age con recipient tlock (§3); (c) **zero collezioni non ordinate nel commitment (POLICY ARCHITETTURALE, v0.9)**: nello stato serializzato e in ogni struttura che tocca un root sono ammessi solo `BTreeMap`/`BTreeSet`/`Vec` a ordine esplicito/array/primitive — `HashMap`/`HashSet` e qualsiasi iterazione non ordinata sono VIETATI *indipendentemente* dalla versione di borsh/hashbrown (riferimento: RUSTSEC-2024-0402, encoding non canonico → consensus split; la patch hashbrown ≥0.15.1 è dovuta ma non sostituisce la policy). CI: gate che fallisce se una struttura consensus introduce una collezione vietata + **test di canonicità**: stesso stato logico, ordini di inserimento diversi → byte identici → state_root identico.
+### 2.3 Hard rules
 
-**Pinning d'interoperabilità (congelato al genesis)**: `DRAND_SCHEME = bls-unchained-g1-rfc9380`; `DRAND_CHAIN_HASH = 52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971` (quicknet); commit esatto dei fork vendorizzati di `tlock`/`tlock_age`/`drand_core` registrato nel genesis (profilo: primitiva raw tlock a 16 byte NON modificata; payload via formato age); suite di **test vector cross-language** nel repo come gate di CI: encrypt in Rust/tlock-js/tlock-Go, decrypt in ciascuna delle altre, byte-identici. È la condizione perché la promessa "verifica riproducibile in qualsiasi linguaggio" valga anche per la cifratura, non solo per il replay.
+1. Anything entering a hash or the state goes through **Borsh, never JSON**.
+2. The blob is **age with a tlock recipient** (§3).
+3. **Zero unordered collections in the commitment** (*architectural policy*). In serialized
+   state and in any structure touching a root, only `BTreeMap` / `BTreeSet` / explicitly
+   ordered `Vec` / arrays / primitives are allowed. `HashMap`, `HashSet` and any unordered
+   iteration are **forbidden**, *independently* of the borsh/hashbrown version
+   (reference: RUSTSEC-2024-0402, non-canonical encoding → consensus split; the
+   hashbrown ≥ 0.15.1 patch is due but does not replace the policy).
+   CI enforces a gate that fails if a consensus structure introduces a forbidden collection,
+   plus a **canonicity test**: same logical state, different insertion orders → identical
+   bytes → identical `state_root`.
+
+### 2.4 Interoperability pinning (frozen at genesis)
+
+- `DRAND_SCHEME = bls-unchained-g1-rfc9380`
+- `DRAND_CHAIN_HASH = 52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971` (quicknet)
+- The exact commit of the vendored `tlock` / `tlock_age` / `drand_core` forks is recorded in
+  genesis (profile: the raw 16-byte tlock primitive is NOT modified; payloads go through the
+  age format).
+- A **cross-language test vector suite** lives in the repository as a CI gate
+  (`interop/run-gate.sh`): every one of the three implementations encrypts, and the other two
+  decrypt, in all nine directions; all three then return **identical verdicts** on the shared
+  rejection vectors in `vectors/profile/`.
+
+That suite is the precondition for "reproducible verification in any language" to hold for
+encryption too, not just for replay.
+
+> **Ciphertexts are not byte-identical across implementations, and must not be expected to
+> be.** tlock encryption is randomized, and `age` greases its headers (§3.6), so the same
+> plaintext encrypts differently every time even within one implementation. What the gate
+> compares is the **plaintext after a round trip** and the **acceptance verdict** — those are
+> the two things a disagreement could fork the chain over.
 
 ---
 
-## 3. Primitive crittografiche e client
+## 3. Cryptographic primitives and clients
 
-- **Identità account**: ed25519. `AccountId = blake3(verifying_key)` (32 byte). Stessa curva di Solana: **una keypair Phantom/Solflare è un'identità valida**.
-- **Dominio di firma** (congelato): la firma è ed25519 su `blake3(SIGN_DOMAIN || borsh(payload))` con `SIGN_DOMAIN = "popcorn-v1"` (ASCII, 10 byte). Impedisce il riuso cross-chain di firme prodotte da wallet Solana e viceversa.
-- **Semantica di verifica (REGOLA DI CONSENSO, v0.9)**: `signature_valid = ed25519_dalek::<VERSIONE_PINNATA>::verify_strict(...)` — non "qualunque Ed25519 standard". RFC 8032 è sotto-specificato e le implementazioni divergono su firme borderline; il replay dei verificatori deve accettare/rifiutare ESATTAMENTE le stesse firme del nodo, quindi la semantica è definita dall'algoritmo, versione inclusa. `verify_strict` (rifiuta punti di piccolo ordine e s non canonici) è la scelta congelata per il modello single-signer; NON è "intrinsecamente migliore" di ZIP-215 — è UNA semantica, scelta e congelata. Se mai servisse verifica batch, la migrazione a ZIP-215 (`ed25519-zebra`) sarebbe un cambio di consenso dichiarato. Test vector obbligatori con firme borderline (torsion, R/A non canonici) che nodo e verificatore devono trattare identicamente.
-- **Flusso client umano (wallet Solana)**: frontend web → Wallet Adapter `signMessage(blake3(SIGN_DOMAIN || borsh(payload)))` → cifratura con **tlock-js** verso il round target → `POST /tx`. Nessun RPC Solana emulato: il wallet firma, il nostro client parla con la nostra API.
-- **Flusso client bot**: keypair ed25519 su file + client HTTP; cifratura con tlock (Rust), tlock-js (JS/TS) o drand/tlock (Go) — interoperabili.
-- **Beacon**: drand **quicknet** (unchained, 3 s). Chain-hash pinnato in genesis. Verifica BLS di ogni beacon contro la `ChainInfo` pinnata. Fetch **sempre per round** (`get(R)`), mai `/latest`; fallback in ordine su `DRAND_REMOTES`.
-- **Policy beacon (REGOLA DI CONSENSO, v0.9)** — esiti enumerati, ciascuno con UNA conseguenza deterministica; nulla è lasciato al runtime:
-  - `ROUND_AVAILABLE` (firma BLS verificata) → si produce il blocco `R`;
-  - `ROUND_NOT_AVAILABLE` (nessun remote risponde) → retry con backoff, **la chain ritarda**: nessun blocco per `R` finché il beacon non arriva; mai skip, mai randomness di fallback;
-  - `ROUND_INVALID` (firma BLS non verifica) → come NOT_AVAILABLE su quel remote; se TUTTI i remote danno firma invalida per lo stesso round, il nodo si FERMA (halt esplicito, mai un blocco con beacon non verificato);
-  - il ritardo del beacon NON è una categoria di consenso (v0.9.1): è liveness/telemetria — per il ledger esiste solo "beacon valido per il round atteso".
-- **Tassonomia degli errori di fetch (v0.9.1)**: `FETCH_FAILURE` (HTTP/timeout), `MALFORMED_RESPONSE`, `WRONG_ROUND`, `WRONG_CHAIN` sono errori del *remote* → prossimo remote / retry (equivalgono a NOT_AVAILABLE); solo `INVALID_SIGNATURE` **da tutte le fonti fidate** per lo stesso round porta all'halt.
-- **Mapping round→blocco (REGOLA DI CONSENSO, v0.9.1)**: `round(h) = GENESIS_DRAND_ROUND + h − 1` per ogni `h ≥ 1`, con `GENESIS_DRAND_ROUND` impresso nel genesis. **Mai skip di round**: dopo un downtime il nodo recupera producendo i blocchi mancanti in sequenza — beacon del round atteso → collection vuota → blocco vuoto (con la sua emissione) → round successivo. Nessuna regola speciale di catch-up: il caso "gap" non esiste, esiste solo la sequenza. Il wall-clock non entra mai nel consenso; le finestre HTLC restano intere per costruzione (un expiry dentro il downtime viene attraversato, mai scavalcato).
-- **`TimelockProvider` (v0.9)**: tutta la logica tlock/drand vive dietro un unico trait (`encrypt/decrypt/chain_hash/round_for_time/get_beacon`); la state machine non sa quale implementazione c'è sotto. La dipendenza timelock è **sostituibile per costruzione** — tlock-rs oggi, un'implementazione nativa su BLS auditato domani — non parte inseparabile dell'architettura.
-- **Orizzonte del timelock (congelato v0.9)**: il nodo accetta blob solo per round entro `BLOB_ROUND_HORIZON` dal round corrente. **Il timelock di POPCORN è fair ordering a orizzonte di secondi/minuti, MAI conservazione a lungo termine**: un eventuale sunset di drand (precedente: fastnet, key material distrutto) impatterebbe l'availability della chain, non la decifrabilità di ciphertext lontani — che per costruzione non esistono.
-- **Profilo POPCORN-TLOCK-AGE-V1 (REGOLA DI CONSENSO, v0.9.1)** — age è un formato estensibile: POPCORN non accetta "qualunque ciphertext age valido" ma solo questo profilo: formato age v1 binario, **armor vietato**; **esattamente una** recipient stanza, di tipo tlock verso il round target; encoding canonico (base64 canonico, LF only); header ≤ 1 KiB; payload STREAM v1; qualsiasi deviazione ⇒ `unusable`. L'**acceptance policy è normativa**: nodo e verificatori devono accettare/rifiutare gli stessi byte — i test vector cross-language coprono anche i casi di rifiuto, non solo il round-trip.
-- **Cifratura tx (congelato v0.8.4)**: il blob è il payload Borsh cifrato nel **formato age con recipient tlock verso il round `R`** (`tlock_age`): age genera la file key, la protegge con la primitiva tlock (16 byte, com'è nativa), e cifra il payload con STREAM/ChaCha20-Poly1305 — l'ibrido è il formato, non codice nostro. Interop client: **drand/tlock (Go), tlock-js, tlock_age (Rust)** producono e leggono lo stesso ciphertext; la suite di test vector cross-language (§2.2) è gate di CI.
-- **Shuffle deterministico** (fissato dalla spec, non da una libreria):
+### 3.1 Identity and signatures
+
+- **Account identity**: ed25519. `AccountId = blake3(verifying_key)` (32 bytes). Same curve
+  as Solana: **a Phantom/Solflare keypair is a valid identity**.
+- **Signing domain (frozen)**: the signature is ed25519 over
+  `blake3(SIGN_DOMAIN || borsh(payload))` with `SIGN_DOMAIN = "popcorn-v1"` (ASCII, 10 bytes).
+  This prevents cross-chain reuse of signatures produced by Solana wallets and vice versa.
+- **Verification semantics (consensus rule)**:
+  `signature_valid = ed25519_dalek::<PINNED_VERSION>::verify_strict(...)` — not "any standard
+  Ed25519". RFC 8032 is under-specified and implementations diverge on borderline signatures;
+  a replaying verifier MUST accept and reject EXACTLY the same signatures as the node, so the
+  semantics are defined by the algorithm, version included.
+  `verify_strict` (rejects small-order points and non-canonical `s`) is the frozen choice for
+  the single-signer model. It is NOT "intrinsically better" than ZIP-215 — it is ONE
+  semantics, chosen and frozen. Should batch verification ever be needed, migrating to
+  ZIP-215 (`ed25519-zebra`) would be a declared consensus change.
+  Test vectors with borderline signatures (torsion components, non-canonical `R`/`A`) are
+  mandatory, and node and verifier MUST treat them identically.
+
+### 3.2 Client flows
+
+- **Human client (Solana wallet)**: web frontend → Wallet Adapter
+  `signMessage(blake3(SIGN_DOMAIN || borsh(payload)))` → encryption with **tlock-js** toward
+  the target round → **de-armor** (below) → `POST /tx`. No emulated Solana RPC: the wallet
+  signs, our client talks to our API.
+
+  > **De-armoring is mandatory for JavaScript clients.** `tlock-js` returns an **armored**
+  > age file (`-----BEGIN AGE ENCRYPTED FILE-----`), and armor is forbidden by the profile
+  > (§3.6) — it is a second encoding of the same ciphertext, so accepting it would give one
+  > transaction two blob hashes, and both the manifest and the receipts key on that hash. A
+  > client strips the PEM wrapper and base64-decodes the body before submitting; the Rust and
+  > Go clients emit binary already. The cross-language gate covers this, and
+  > `interop/js/interop.mjs` is the three-line reference.
+  > **The node serves the page it expects clients to use** (`web/`, compiled into the binary;
+  > `--no-web` turns it off). This is not consensus — §13.3 classifies serving as free — but
+  > it is not decoration either: this flow puts a signature and an encryption in a browser,
+  > and a page fetched from a third party is a page that can be swapped for one that signs
+  > something else. Served by the node, it is same-origin with the API and loads nothing from
+  > anywhere else. Because the page decides what bytes a key signs, its encoder is covered by
+  > a gate like any other implementation: `web/test/browser-path.sh` builds one transaction of
+  > every action kind through the page's own bundle and checks the bytes, the identity, the
+  > signature and the blob profile against the Rust and Go tools.
+- **Bot client**: an ed25519 keypair in a file plus an HTTP client; encryption with tlock
+  (Rust), tlock-js (JS/TS) or drand/tlock (Go) — all interoperable.
+
+### 3.3 Beacon
+
+drand **quicknet** (unchained, 3 s). The chain hash is pinned in genesis and every beacon is
+BLS-verified against the pinned `ChainInfo`. Fetch is **always by round** (`get(R)`), never
+`/latest`; fallback proceeds in order through `DRAND_REMOTES`.
+
+**Beacon policy (consensus rule)** — enumerated outcomes, each with ONE deterministic
+consequence; nothing is left to the runtime:
+
+| Outcome | Consequence |
+|---|---|
+| `ROUND_AVAILABLE` (BLS signature verified) | block `R` is produced |
+| `ROUND_NOT_AVAILABLE` (no remote answers) | retry with backoff, **the chain waits**: no block for `R` until the beacon arrives. Never skip, never fall back to other randomness |
+| `ROUND_INVALID` (BLS signature fails) | treated as NOT_AVAILABLE for that remote; if ALL remotes return an invalid signature for the same round, the node **halts** (explicit halt, never a block with an unverified beacon) |
+
+Beacon *lateness* is NOT a consensus category: it is liveness and telemetry. For the ledger
+there is only "valid beacon for the expected round".
+
+**Fetch error taxonomy**: `FETCH_FAILURE` (HTTP/timeout), `MALFORMED_RESPONSE`, `WRONG_ROUND`
+and `WRONG_CHAIN` are *remote* errors → next remote / retry (equivalent to NOT_AVAILABLE).
+Only `INVALID_SIGNATURE` **from every trusted source** for the same round leads to halt.
+
+### 3.4 Round → block mapping (consensus rule)
+
+```
+round(h) = GENESIS_DRAND_ROUND + h − 1        for every h ≥ 1
+```
+
+`GENESIS_DRAND_ROUND` is stamped into genesis. **Rounds are never skipped**: after downtime
+the node catches up by producing the missing blocks in sequence — beacon for the expected
+round → empty collection → empty block (with its emission) → next round. There is no special
+catch-up rule; the "gap" case does not exist, only the sequence does.
+
+Wall-clock time never enters consensus, and HTLC windows stay whole by construction: an
+expiry falling inside downtime is *crossed*, never *jumped over*.
+
+### 3.5 TimelockProvider and the timelock horizon
+
+All tlock/drand logic lives behind a single trait
+(`encrypt` / `decrypt` / `chain_hash` / `round_for_time` / `get_beacon`); the state machine
+does not know which implementation sits underneath. The timelock dependency is
+**substitutable by construction** — tlock-rs today, a native implementation over audited BLS
+tomorrow — not an inseparable part of the architecture.
+
+The node accepts blobs only for rounds within `BLOB_ROUND_HORIZON` of the current round.
+**POPCORN's timelock is fair ordering on a horizon of seconds to minutes, NEVER long-term
+storage**: a drand sunset (precedent: fastnet, key material destroyed) would affect chain
+availability, not the decryptability of distant ciphertexts — which by construction do not
+exist.
+
+### 3.6 POPCORN-TLOCK-AGE-V1 (consensus rule)
+
+age is an extensible format: POPCORN does not accept "any valid age ciphertext", only this
+profile.
+
+| Requirement | Value |
+|---|---|
+| Format | age v1, binary |
+| Armor | **forbidden** |
+| Recipient stanzas | **exactly one** of type `tlock`, toward the target round, plus **at most one** grease stanza (below) |
+| Encoding | canonical (canonical base64 without padding, lowercase hex, LF only) |
+| Round argument | canonical decimal, no leading zeros |
+| Chain hash argument | the pinned `DRAND_CHAIN_HASH`, lowercase hex |
+| Header size | ≤ 1 KiB, from the first byte through the MAC line |
+| Payload | STREAM v1, and non-empty |
+
+Any deviation ⇒ `unusable`. The **acceptance policy is normative**: node and verifiers MUST
+accept and reject the same bytes — the cross-language test vectors cover rejection cases, not
+just round-trips.
+
+**The grease stanza (amended v0.9.3-en).** Earlier text said "exactly one recipient stanza",
+full stop. That rule is **unimplementable** with the pinned stack: the `age` implementation
+appends a randomized stanza tagged `<random>-grease` to every header it writes, by design, to
+keep parsers from ossifying. Enforcing "exactly one" would reject every blob produced by the
+Rust client this document itself names as interoperable. The rule is therefore:
+
+- exactly one stanza of type `tlock`, carrying the target round and the pinned chain hash;
+- at most one additional stanza whose type ends in `-grease`, which is **ignored**;
+- any other stanza ⇒ `unusable`.
+
+Refusing foreign stanzas is the part that carries weight: a second recipient stanza would be a
+decryption path for someone other than the round. A grease stanza cannot become one — no
+implementation unwraps a file key from an unknown tag — and the header cap bounds the
+attacker-chosen bytes it can carry.
+
+One consequence follows and is declared rather than hidden: because the grease stanza is
+random, the same transaction encrypts to **different blobs** on every attempt. A client can
+therefore mint unlimited distinct blobs for one transaction. `collection_root` deduplicates
+identical blobs only, so these arrive as distinct manifest entries; the logical duplicate is
+still resolved by nonce deduplication (§5.2, step 6), and the volume is bounded by the
+wire-level admission limits of §11, not by consensus.
+
+**Transaction encryption (frozen)**: the blob is the Borsh payload encrypted in the **age
+format with a tlock recipient toward round `R`** (`tlock_age`): age generates the file key,
+protects it with the tlock primitive (16 bytes, as is native to it), and encrypts the payload
+with STREAM/ChaCha20-Poly1305 — the hybrid is the format, not our code. Client interop:
+**drand/tlock (Go), tlock-js, tlock_age (Rust)** produce and read the same ciphertext.
+
+### 3.7 Deterministic shuffle
+
+Fixed by this specification, not by a library.
 
 ```
 seed_stream = blake3::Hasher::new()
-                .update(drand_signature_R)      // bytes grezzi della firma BLS
+                .update(drand_signature_R)      // raw bytes of the BLS signature
                 .update(LE64(height))
                 .finalize_xof()
 
-next_u64():  8 byte dallo stream (OutputReader::fill), little-endian
+next_u64():  8 bytes from the stream (OutputReader::fill), little-endian
 
-uniform(n):  limit = u64::MAX - (u64::MAX % n)   // = ⌊(2⁶⁴−1)/n⌋·n → multiplo esatto di n
+uniform(n):  limit = u64::MAX - (u64::MAX % n)   // = ⌊(2⁶⁴−1)/n⌋·n → exact multiple of n
              loop { x = next_u64(); if x < limit { return x % n } }
-             // al rifiuto: gli 8 byte SUCCESSIVI dallo stream (lo stream avanza
-             // sempre, mai riletture) — parte della definizione di consenso
-// PROVA DI UNIFORMITÀ: l'insieme accettato è [0, limit), di cardinalità limit,
-// multiplo esatto di n per costruzione → x % n è esattamente uniforme su [0, n).
-// (Per n potenza di 2 si rigettano n valori in coda invece di 0: spreco
-// trascurabile, uniformità intatta.)
+             // on rejection: the NEXT 8 bytes from the stream (the stream always
+             // advances, never re-reads) — part of the consensus definition
 
-// Fisher-Yates sulla lista tx valide ordinate per tx_id crescente (bytes lessicografici)
+// UNIFORMITY PROOF: the accepted set is [0, limit), of cardinality limit, an exact
+// multiple of n by construction → x % n is exactly uniform over [0, n).
+// (For n a power of two, n values are rejected at the tail instead of 0: negligible
+// waste, uniformity intact.)
+
+// Fisher-Yates over the valid tx list sorted by ascending tx_id (lexicographic bytes)
 for i in (1..len).rev():
     j = uniform(i + 1)
     swap(txs[i], txs[j])
@@ -136,57 +356,83 @@ for i in (1..len).rev():
 
 ---
 
-## 4. Identificatori e formati dati (Borsh)
+## 4. Identifiers and data formats
 
-### 4.1 Identificatori — domain separation (congelato)
+### 4.1 Identifiers — domain separation (frozen)
 
-Tutti gli ID sono `[u8; 32]`. Il primo byte del preimage è un **tag di dominio**: nessuna collisione tra namespace.
+Every ID is `[u8; 32]`. The first byte of the preimage is a **domain tag**: no collisions
+between namespaces.
 
 ```
-NATIVE_TOKEN  = [0x00; 32]                                        // costante
+NATIVE_TOKEN  = [0x00; 32]                                        // constant
 TokenId       = blake3(0x01 || creator: AccountId || LE64(payload.nonce))
 LpTokenId     = blake3(0x02 || PairId)
-PairId        = blake3(0x03 || token0 || token1 || LE16(fee_bps))  // token0 < token1 (lessicografico)
+PairId        = blake3(0x03 || token0 || token1 || LE16(fee_bps))  // token0 < token1 (lexicographic)
 tx_id         = blake3(borsh(SignedTx))
 HtlcId        = blake3(0x04 || sender: AccountId || LE64(payload.nonce))
-FOUNDATION    = AccountId della chiave foundation, dichiarato nel genesis
+FOUNDATION    = AccountId of the foundation key, declared in genesis
 ```
 
-**Identità di transazione (congelato)**: `tx_id` copre il `SignedTx` completo, **firma inclusa** — è l'hash di ciò che viene effettivamente trasmesso ed eseguito. Poiché un firmatario può produrre firme diverse per lo stesso payload, la stessa intenzione può generare più tx_id: è il dedup per nonce (§5.2, passo 6) a garantire che ne venga eseguita al più una.
+**Transaction identity (frozen)**: `tx_id` covers the complete `SignedTx`, **signature
+included** — it is the hash of what is actually transmitted and executed. Since a signer can
+produce different signatures for the same payload, the same intent can yield several tx_ids;
+nonce deduplication (§5.2, step 6) guarantees at most one of them executes.
 
-**Invariante di identità (congelato)**: per ogni account con `pubkey == Some(pk)`: `AccountId == blake3(pk)`; la pubkey si materializza alla prima tx firmata inclusa (§4.2) e non è mai riassegnabile. La coerenza è garantita per costruzione: il nodo deriva **sempre** `signer = blake3(signer_pubkey)` dal campo della tx, mai da una lookup inversa.
+**Identity invariant (frozen)**: for every account with `pubkey == Some(pk)`,
+`AccountId == blake3(pk)`. The pubkey materializes on the account's first included signed
+transaction (§4.2) and is never reassignable. Coherence holds by construction: the node
+**always** derives `signer = blake3(signer_pubkey)` from the transaction field, never from a
+reverse lookup.
 
-**Limiti di dimensione (congelato)**: `MAX_BLOB_SIZE` è un limite **wire-level** sull'intero blob cifrato (formato POPCORN-TLOCK-AGE-V1, §3) accettato da `POST /tx`; `MAX_PUBLISH_SIZE` è un limite sul campo in chiaro `Action::Publish.data`. Sono indipendenti: un `Publish` da 512 B in chiaro deve comunque stare, cifrato e con overhead, nei 2 KiB wire.
+**Size limits (frozen)**: `MAX_BLOB_SIZE` is a **wire-level** limit on the whole encrypted
+blob (POPCORN-TLOCK-AGE-V1 format, §3) accepted by `POST /tx`; `MAX_PUBLISH_SIZE` limits the
+cleartext `Action::Publish.data` field. They are independent: a 512 B cleartext `Publish`
+must still fit, encrypted and with overhead, inside the 2 KiB wire limit.
 
-Gli **LP token sono token di prima classe**: vivono in `balances` sotto `LpTokenId` (quindi `Transfer` funziona su di loro senza codice dedicato). `token0`/`token1` in `PairId` possono essere `NATIVE_TOKEN` o `TokenId`, **mai** `LpTokenId` (niente pool di LP: vietato in validazione).
+**LP tokens are first-class tokens**: they live in `balances` under an `LpTokenId`, so
+`Transfer` works on them with no dedicated code. `token0`/`token1` in a `PairId` may be
+`NATIVE_TOKEN` or a `TokenId`, **never** an `LpTokenId` (no pools of LP tokens: rejected in
+validation).
 
-### 4.2 Account impliciti e materializzazione della chiave (congelato)
+### 4.2 Implicit accounts and key materialization (frozen)
 
-Non esiste un'azione di creazione account. Un record `Account` nasce automaticamente (nonce 0, saldi vuoti, `pubkey = None`) la **prima volta che riceve fondi**: `Transfer` in ingresso, accredito LP, payout staking, output di swap. Il mittente indica solo `to: AccountId` — non deve conoscere la chiave del destinatario.
+There is no account-creation action. An `Account` record is born automatically (nonce 0,
+empty balances, `pubkey = None`) the **first time it receives funds**: an incoming
+`Transfer`, an LP credit, a staking payout, a swap output. The sender only names
+`to: AccountId` — it need not know the recipient's key.
 
-**Materializzazione**: ed25519 non ha key recovery, quindi la verifying key deve viaggiare esplicitamente — sta nel campo `signer_pubkey` di ogni `SignedTx`. Alla **prima tx firmata dall'account eseguita** (`Ok` o `Failed`, cioè presente in `txs`), `account.pubkey` passa da `None` a `Some(signer_pubkey)`, per sempre. Le `rejected` **non** materializzano: non deve essere possibile fissare la chiave senza pagare la fee. È il modello P2PKH di Bitcoin: si paga a un hash, la chiave si rivela al primo spend.
+**Materialization**: ed25519 has no key recovery, so the verifying key must travel
+explicitly — it sits in the `signer_pubkey` field of every `SignedTx`. On the account's
+**first executed signed transaction** (`Ok` or `Failed`, i.e. present in `txs`),
+`account.pubkey` goes from `None` to `Some(signer_pubkey)`, permanently. `rejected`
+transactions do **not** materialize it: fixing the key without paying a fee must not be
+possible. This is Bitcoin's P2PKH model: you pay to a hash, the key is revealed on first
+spend.
 
-Un account senza saldo nativo non può transare (non copre `FEE_TX`): il bootstrap di un nuovo utente è ricevere nativo da qualcuno (foundation, un altro utente, un exchange interno).
+An account with no native balance cannot transact (it cannot cover `FEE_TX`): bootstrapping a
+new user means receiving native from someone (the foundation, another user, an internal
+exchange).
 
-### 4.3 Strutture
+### 4.3 Structures
 
 ```rust
 type AccountId = [u8; 32];
-type Amount    = u128;       // 9 decimali per tutti i token
+type Amount    = u128;       // 9 decimals for every token
 
 struct Account {
-    pubkey: Option<[u8; 32]>,         // None finché l'account non firma la sua prima tx (§4.2)
-    nonce: u64,                       // ultima nonce ESEGUITA (parte da 0)
+    pubkey: Option<[u8; 32]>,              // None until the account signs its first tx (§4.2)
+    nonce: u64,                            // last EXECUTED nonce (starts at 0)
     balances: BTreeMap<[u8;32], Amount>,   // NATIVE_TOKEN | TokenId | LpTokenId
     staked: Amount,
-    paid_acc: u128,   // snapshot di acc_per_stake all'ultimo settle (Synthetix userRewardPerTokenPaid) — v0.9.2
+    paid_acc: u128,   // snapshot of acc_per_stake at the last settle
+                      // (Synthetix userRewardPerTokenPaid)
 }
 
 struct Token {
     id: [u8; 32],
     creator: AccountId,
-    name: [u8; 16],                   // ASCII stampabile 0x20–0x7E, zero-padded a destra
-    total_supply: Amount,             // 1 ..= MAX_SUPPLY, immutabile
+    name: [u8; 16],                   // printable ASCII 0x20–0x7E, right zero-padded
+    total_supply: Amount,             // 1 ..= MAX_SUPPLY, immutable
 }
 
 struct Pair {
@@ -201,8 +447,8 @@ struct Pair {
 
 struct SignedTx {
     payload: TxPayload,
-    signer_pubkey: [u8; 32],          // verifying key ed25519; signer = blake3(signer_pubkey)
-    signature: [u8; 64],              // ed25519 su blake3(SIGN_DOMAIN || borsh(payload))
+    signer_pubkey: [u8; 32],          // ed25519 verifying key; signer = blake3(signer_pubkey)
+    signature: [u8; 64],              // ed25519 over blake3(SIGN_DOMAIN || borsh(payload))
 }
 
 struct TxPayload {
@@ -223,446 +469,986 @@ enum Action {
                     amount_in: Amount, min_amount_out: Amount },
     SwapExactOut  { path: Vec<[u8;32]>, token_in: [u8;32],
                     amount_out: Amount, max_amount_in: Amount },
-    Publish       { topic: [u8;32], data: Vec<u8> },   // §7.5 — nessun effetto sullo stato
+    Publish       { topic: [u8;32], data: Vec<u8> },   // §7.5 — no state effect
     HtlcLock      { to: AccountId, token: [u8;32], amount: Amount,
                     hashlock: [u8;32], expiry_round: u64 },        // §7.6 — sha256(preimage)
     HtlcClaim     { htlc_id: [u8;32], preimage: [u8;32] },         // §7.6
-    HtlcRefund    { htlc_id: [u8;32] },                            // §7.6 — invocabile da chiunque
+    HtlcRefund    { htlc_id: [u8;32] },                            // §7.6 — anyone may send it
     Stake         { amount: Amount },
     Unstake       { amount: Amount },
     ClaimRewards  {},
 }
 
-enum ExecStatus { Ok, Failed(FailReason) }     // allineato 1:1 a Block.txs
+enum ExecStatus { Ok, Failed(FailReason) }     // aligned 1:1 with Block.txs
 
 struct Header {
     height: u64,
-    prev_hash: [u8; 32],              // block_hash del blocco precedente; genesis: [0;32]
+    prev_hash: [u8; 32],              // block_hash of the previous block; genesis: [0;32]
     drand_round: u64,
     drand_sig_hash: [u8; 32],         // blake3(drand_signature)
-    collection_root: [u8; 32],        // blake3(concat(blake3(blob))) ordinati lessicografici — §5.1
-    txs_root: [u8; 32],               // blake3(concat(tx_id) nell'ORDINE DI ESECUZIONE)
-    rejected_root: [u8; 32],          // blake3(concat(tx_id || borsh(RejectReason))), coppie ordinate per tx_id
+    collection_root: [u8; 32],        // blake3(concat(blake3(blob))), lexicographic — §5.1
+    txs_root: [u8; 32],               // blake3(concat(tx_id) in EXECUTION ORDER)
+    rejected_root: [u8; 32],          // blake3(concat(tx_id || borsh(RejectReason))),
+                                      // pairs sorted by tx_id
     results_root: [u8; 32],           // blake3(borsh(Vec<ExecStatus>))
     state_root: [u8; 32],             // §5.4
 }
 
 struct Block {
     header: Header,
-    drand_signature: Vec<u8>,         // firma BLS completa (per verifica e tlock replay)
-    blob_manifest: Vec<[u8;32]>,      // blake3 di OGNI blob ricevuto per R, ordine lessicografico
-    unusable: Vec<[u8;32]>,      // ⊆ manifest: tlock O age/AEAD O decodifica Borsh falliti
-                                      // (un Borsh-fail è decifrabile ma inutilizzabile: da qui il nome)
-    txs: Vec<SignedTx>,               // ordine di esecuzione
+    drand_signature: Vec<u8>,         // full BLS signature (for verification and tlock replay)
+    blob_manifest: Vec<[u8;32]>,      // blake3 of EVERY blob received for R, lexicographic
+    unusable: Vec<[u8;32]>,           // ⊆ manifest: failed tlock OR age/AEAD OR Borsh decode
+                                      // (a Borsh failure is decryptable yet unusable — hence
+                                      // the name)
+    txs: Vec<SignedTx>,               // execution order
     results: Vec<ExecStatus>,
-    rejected: Vec<([u8;32], RejectReason)>,   // tx_id, ordinati lessicograficamente
-    node_signature: [u8; 64],         // ed25519 su block_hash
+    rejected: Vec<([u8;32], RejectReason)>,   // tx_id, lexicographically sorted
+    node_signature: [u8; 64],         // ed25519 over block_hash
 }
-
-// Root su liste vuote (congelato v0.9.1): txs_root, rejected_root e
-// collection_root su lista vuota = blake3 dell'input vuoto; results_root
-// su lista vuota = blake3(borsh(Vec::<ExecStatus>::new())). Nessun caso speciale.
-// block_hash     := blake3(borsh(Header))
-// node_signature := Ed25519(node_key, block_hash)
-// L'oggetto firmato/impegnato è l'HEADER; Block è un contenitore i cui campi
-// (txs, results, rejected, drand_signature) sono vincolati dai root nell'Header.
 ```
 
-**Semantica del path**: sequenza di `PairId`. Il nodo parte da `token_in`; per ogni pair deriva il token di uscita (l'altro lato). Validazione fallisce se una pair non contiene il token corrente. `1 <= path.len() <= MAX_PATH_LEN`.
+**Roots over empty lists (frozen)**: `txs_root`, `rejected_root` and `collection_root` over an
+empty list are `blake3` of the empty input; `results_root` over an empty list is
+`blake3(borsh(Vec::<ExecStatus>::new()))`. No special cases.
 
-**Storage (redb, single file)**: tabelle `blocks` (`u64 → borsh(Block)`, append-only — **fonte di verità**), `state` (cache ricostruibile per replay), `meta` (head, chain-info drand, pubkey nodo, pubkey foundation). Un `WriteTransaction` per batch: blocco + delta stato atomici.
+```
+block_hash     := blake3(borsh(Header))
+node_signature := Ed25519(node_key, block_hash)
+```
 
-**Genesis (blocco 0)**: nessuna tx, **nessuna allocazione** (fair launch): stato iniziale vuoto; `state_root` calcolato sullo stato vuoto; parametri e chain-info drand impressi in `meta`. I primi nativi nascono con l'emissione alla chiusura del blocco 1 (quota foundation).
+The signed and committed object is the **Header**. `Block` is a container whose fields
+(`txs`, `results`, `rejected`, `drand_signature`) are bound by the roots in the Header.
+
+**Path semantics**: a sequence of `PairId`s. The node starts from `token_in`; for each pair it
+derives the output token (the other side). Validation fails if a pair does not contain the
+current token. `1 <= path.len() <= MAX_PATH_LEN`.
+
+**Storage (redb, single file)**: tables `blocks` (`u64 → borsh(Block)`, append-only — **the
+source of truth**), `state` (rebuildable cache for replay), `meta` (head, drand chain-info,
+node pubkey, foundation pubkey). One `WriteTransaction` per batch: block and state delta are
+atomic.
+
+**Genesis (block 0)**: no transactions, **no allocation** (fair launch). Initial state is
+empty; `state_root` is computed over the empty state; parameters and drand chain-info are
+stamped into `meta`. The first native units are born with the emission closing block 1 (the
+foundation share).
 
 ---
 
-## 5. Ciclo di vita del batch (semantiche congelate)
+## 5. Batch lifecycle
 
-Un batch per round drand (3 s). Il batch `R` esegue le tx cifrate verso il round `R`.
+One batch per drand round (3 s). Batch `R` executes the transactions encrypted toward round
+`R`.
 
-### 5.1 Fasi
-1. **Raccolta** (fino a `T(R) − ε`): `POST /tx` con `{blob, target_round: R}`; il nodo accoda alla cieca e firma la ricevuta (§9.2).
-1b. **Commitment della raccolta (riformulato v0.9.1)**: il nodo congela il `blob_manifest` (blake3 di ogni blob ricevuto, ordine lessicografico) e ne calcola il `collection_root`. **Il consenso non vincola temporalmente questa chiusura al beacon**: un nodo può attendere il beacon, decifrare e poi manifestare — il blocco resta formalmente valido. Le garanzie sono: (a) ogni blob **ricevutato** deve comparire nel manifest (contraddizione firmata altrimenti, §9.2); (b) ogni voce del manifest deve risolversi nella contabilità completa (fase 3). Pratica operativa raccomandata (non consenso): pubblicare il root su `WS /stream` prima di `T(R)` per dare a osservatori terzi un timestamp del commit-then-decrypt.
-2. **Beacon**: `get(R)` con fallback multi-endpoint; verifica BLS.
-3. **Decifratura**: blob decifrato col beacon del round secondo il profilo POPCORN-TLOCK-AGE-V1 (§3). **Contabilità completa (congelata)**: ogni hash del manifest DEVE risolversi in esattamente uno tra — una tx in `txs`, una voce in `rejected`, o la lista `unusable`. Ogni claim di indecifrabilità è **falsificabile da chiunque**: blob + beacon pubblico → decifratura riproducibile. Il nodo serve i blob manifestati via `GET /blob/{hash}` e li include nel mirror. **Derivazione normativa di `unusable` (v0.9.1)**: `unusable := manifest ∖ {blob dei SignedTx in txs/rejected}` — il campo `unusable` del blocco è **derived evidence**, non input di consenso: due verificatori con manifest, blob (dal mirror) e beacon DEVONO derivare lo stesso insieme applicando il profilo POPCORN-TLOCK-AGE-V1 e la decodifica Borsh; un campo `unusable` incoerente con la derivazione è un blocco scorretto. **Pin (v0.8.3)**: il fallimento di decodifica Borsh del `SignedTx` decifrato conta come `unusable` (hash del blob), mai come `rejected` — una `rejected` impegna un `tx_id`, che per un blob non decodificabile non esiste. Il `collection_root` impegna l'**insieme dei blob distinti ricevuti, NON la molteplicità delle submission**: lo stesso blob sottomesso dieci volte (dieci ricevute) è una voce del manifest — un manifest multiset è una implementazione errata. Il dedup nonce gestisce comunque il duplicato logico.
-4. **Validazione statica** (§5.2) → `valid` + `rejected`.
-5. **Ordinamento** (§5.3): shuffle + normalizzazione nonce.
-5b. **Prelievo fee (congelato v0.8.3)**: per ogni tx valida, burn di `tx_fee(tx)` dal signer, in fase unica — la solvency statica (passo 9, saldo pre-batch) garantisce capienza, il prelievo non può fallire. L'esecuzione parte a fee già bruciate.
-6. **Esecuzione sequenziale** (§5.2).
-7. **Chiusura**: emissione (§7.2), burn delle fee (§7.4), state root (§5.4), header, firma, commit atomico redb, push WS, mirror esterno.
+### 5.1 Phases
 
-Tx in ritardo per `R`: scartate (il client ricifra verso un round futuro).
+1. **Collection** (until `T(R) − ε`): `POST /tx` with `{blob, target_round: R}`; the node
+   queues blindly and signs the receipt (§9.2).
+2. **Collection commitment**: the node freezes the `blob_manifest` (blake3 of every blob
+   received, lexicographic order) and computes `collection_root`.
+   **Consensus does not temporally bind this closure to the beacon**: a node may wait for the
+   beacon, decrypt, and only then manifest — the block stays formally valid. The guarantees
+   are: (a) every **receipted** blob must appear in the manifest (otherwise it is a signed
+   contradiction, §9.2); (b) every manifest entry must resolve in the complete accounting of
+   phase 4.
+   *Recommended operational practice (not consensus)*: publish the root on `WS /stream` before
+   `T(R)`, giving third-party observers a timestamp of the commit-then-decrypt.
+3. **Beacon**: `get(R)` with multi-endpoint fallback; BLS verification.
+4. **Decryption and complete accounting** (below).
+5. **Static validation** (§5.2) → `valid` + `rejected`.
+6. **Ordering** (§5.3): shuffle + nonce normalization.
+7. **Fee collection (frozen)**: for every valid transaction, burn `tx_fee(tx)` from the
+   signer, in a **single phase** — static solvency (step 9, pre-batch balance) guarantees
+   capacity, so the deduction cannot fail. Execution starts with fees already burned.
+8. **Sequential execution** (§5.2).
+9. **Close**: HTLC auto-settlement (§7.6), emission (§7.2), state root (§5.4), header,
+   signature, atomic redb commit, WS push, external mirror.
 
-### 5.2 Validazione e failure (congelato)
+Transactions arriving late for `R` are discarded (the client re-encrypts toward a future
+round).
 
-**Validazione statica — pipeline ordinata (congelata).** I passi si applicano in quest'ordine; una tx scartata a un passo non partecipa ai successivi:
-1. decodifica Borsh del `SignedTx`;
-2. firma ed25519 di `signer_pubkey` valida su `blake3(SIGN_DOMAIN || borsh(payload))`; si deriva `signer = blake3(signer_pubkey)`;
-3. `target_round == R`;
-4. l'account `signer` esiste; se `account.pubkey == Some(pk)`, richiesto `pk == signer_pubkey` (se `None`, la materializzazione avviene all'inclusione, §4.2); **se `account.nonce == u64::MAX` → `rejected: NonceExhausted`** (account terminale, valutato QUI — prima di dedup e contiguità; sotto-ordine del passo 4, v0.9.3: esistenza → coerenza pubkey → nonce esaurita, quindi a parità di condizioni vince `PubkeyMismatch`);
-5. campi nei range: `fee_bps ∈ FEE_TIERS`, `supply ∈ 1..=MAX_SUPPLY`, `1 <= path.len() <= MAX_PATH_LEN`, nome ASCII stampabile, `data.len() <= MAX_PUBLISH_SIZE`; **`amount > 0` per `Transfer`, `Stake`, `Unstake`** (v0.9.3 → `FieldOutOfRange`); per `HtlcLock`: `amount > 0` e `R < expiry_round <= R + HTLC_MAX_LIFETIME_ROUNDS`;
-6. **dedup nonce**: a parità di `(signer, nonce)` resta la tx con `tx_id` lessicograficamente minore, le altre → `rejected`; tie-break formale (v0.9.1): `tx_id` uguali ⇒ `SignedTx` byte-identici ⇒ stessa transazione, che collassa in una sola voce;
-7. **contiguità**: le nonce dell'account devono formare una sequenza contigua da `account.nonce + 1`; le tx oltre il primo buco → `rejected`;
-8. **budget**: al più `MAX_TX_PER_ACCOUNT_PER_BATCH` tx per account, tenute in ordine di nonce crescente (eccedenti → `rejected`);
-9. **fee-solvency**: saldo nativo **pre-batch** ≥ `Σ tx_fee(tx)` delle tx dell'account sopravvissute ai passi 1–8; se insolvente, si scartano le tx **dalla nonce più alta in giù** finché la condizione vale (scartate → `rejected: FeeInsolvent`).
+**Complete accounting (frozen).** Every manifest hash MUST resolve into exactly one of: a
+transaction in `txs`, an entry in `rejected`, or the `unusable` list. Every claim of
+undecryptability is **falsifiable by anyone**: blob + public beacon → reproducible
+decryption. The node serves manifested blobs via `GET /blob/{hash}` and includes them in the
+mirror.
 
-Nota: un account finanziato nello stesso batch può transare solo dal batch successivo.
+**Normative derivation of `unusable`**:
 
-**Regola Transfer (v0.9.2)**: `Transfer` con `to == signer` ⇒ `Failed(SelfTransferNoop)` — nessun trasferimento a sé stessi (pagherebbe fee per un no-op ambiguo in contabilità).
-
-**Fee canonica (congelata)**:
 ```
-tx_fee(tx) = FEE_TX + PUBLISH_BYTE_FEE × max(0, len(data) − PUBLISH_FREE_BYTES)   se action è Publish
-tx_fee(tx) = FEE_TX                                                                altrimenti
+unusable := manifest ∖ { blobs of the SignedTx in txs ∪ rejected }
 ```
-È l'**unica** definizione di fee, usata ovunque: solvency (passo 9), burn su `Ok`, burn su `Failed`.
 
-**`rejected`** (fallita la statica): non eseguita, **zero fee, nonce intatto**; nel blocco come `(tx_id, RejectReason)`.
+The block's `unusable` field is **derived evidence, not consensus input**: two verifiers
+holding the manifest, the blobs (from the mirror) and the beacon MUST derive the same set by
+applying the POPCORN-TLOCK-AGE-V1 profile and Borsh decoding. An `unusable` field
+inconsistent with that derivation is an incorrect block.
 
-**Fee e esecuzione (congelato v0.8.3)**: le fee di TUTTE le tx valide sono bruciate nella fase 5b, prima che qualsiasi azione esegua — ogni tx paga sempre la fee piena (`Ok` e `Failed`), nessuna azione può spendere i fondi destinati alle fee successive, e il `min()` non esiste più. Poi, per ogni tx nell'ordine: (1) snapshot dello stato; (2) esecuzione dell'azione. Il rollback di `failed` ripristina lo snapshot: la fee, bruciata in 5b, è fuori dal rollback per costruzione e mai restituita.
+A Borsh decode failure of the decrypted `SignedTx` counts as `unusable` (the blob hash),
+never as `rejected` — a `rejected` entry commits to a `tx_id`, which for an undecodable blob
+does not exist.
 
-**`failed`** (fallita a runtime — `min_amount_out` violato, saldo insufficiente, pool inesistente al momento dell'esecuzione, overflow): rollback allo snapshot, **nonce consumato** (`account.nonce += 1`), `ExecStatus::Failed(reason)` in `results`.
+`collection_root` commits to the **set of distinct blobs received, NOT the multiplicity of
+submissions**: the same blob submitted ten times (ten receipts) is one manifest entry — a
+multiset manifest is an incorrect implementation. Logical duplicates are handled by nonce
+deduplication anyway.
 
-**`Ok`**: effetti applicati, nonce consumato.
+### 5.2 Validation and failure (frozen)
 
-### 5.3 Nonce + shuffle (congelato)
+**Static validation — ordered pipeline.** Steps apply in this order; a transaction dropped at
+one step does not take part in the following ones.
 
-Lo shuffle globale (§3) assegna le **posizioni**. Poi, **normalizzazione per account**: per ogni account con più tx nel batch, siano `P = {p1 < p2 < …}` le posizioni delle sue tx dopo lo shuffle; le sue tx vengono riassegnate a `P` in **ordine di nonce crescente**. Le tx di account diversi non si muovono.
+| # | Step | Reject reason |
+|---|---|---|
+| 1 | Borsh decode of the `SignedTx` | *(blob counts as `unusable`, no tx_id exists)* |
+| 2 | ed25519 signature of `signer_pubkey` over `blake3(SIGN_DOMAIN \|\| borsh(payload))`; derive `signer = blake3(signer_pubkey)` | `BadSignature` |
+| 3 | `target_round == R` | `WrongRound` |
+| 4 | account `signer` exists → if `account.pubkey == Some(pk)`, require `pk == signer_pubkey` → if `account.nonce == u64::MAX`, the account is **terminal** | `UnknownAccount`, then `PubkeyMismatch`, then `NonceExhausted` |
+| 5 | Field ranges (below) | `FieldOutOfRange` |
+| 6 | **Nonce dedup**: for equal `(signer, nonce)`, the lexicographically smallest `tx_id` survives | `DuplicateNonce` |
+| 7 | **Contiguity**: the account's nonces must form a contiguous run from `account.nonce + 1`; transactions beyond the first gap are dropped | `NonceGap` |
+| 8 | **Budget**: at most `MAX_TX_PER_ACCOUNT_PER_BATCH` transactions per account, kept in ascending nonce order | `OverBudget` |
+| 9 | **Fee solvency**: **pre-batch** native balance ≥ `Σ tx_fee(tx)` over the account's transactions surviving steps 1–8; if insolvent, drop transactions **from the highest nonce downward** until the condition holds | `FeeInsolvent` |
 
-Proprietà: deterministico; distribuzione delle posizioni uniforme; una sequenza contigua non fallisce per disordine interno; un `failed` intermedio non blocca le successive dello stesso account (nonce comunque consumata).
+Step 4's sub-order is pinned: existence → pubkey coherence → exhausted nonce. All else being
+equal, `PubkeyMismatch` wins. The terminal-nonce check happens **here**, before dedup and
+contiguity.
 
-### 5.4 State root canonico (congelato)
+Step 6's formal tie-break: equal `tx_id`s ⇒ byte-identical `SignedTx` ⇒ the same transaction,
+which collapses into a single entry.
+
+Step 5 ranges: `fee_bps ∈ FEE_TIERS`; `supply ∈ 1..=MAX_SUPPLY`;
+`1 <= path.len() <= MAX_PATH_LEN`; printable-ASCII name; `data.len() <= MAX_PUBLISH_SIZE`;
+**`amount > 0` for `Transfer`, `Stake` and `Unstake`**; for `HtlcLock`, `amount > 0` and
+`R < expiry_round <= R + HTLC_MAX_LIFETIME_ROUNDS`.
+
+> An account funded in the same batch can only transact from the next batch onward.
+
+**Transfer rule**: `Transfer` with `to == signer` ⇒ `Failed(SelfTransferNoop)` — no
+self-transfers (they would pay a fee for an accounting-ambiguous no-op).
+
+**Canonical fee (frozen)**:
+
+```
+tx_fee(tx) = FEE_TX + PUBLISH_BYTE_FEE × max(0, len(data) − PUBLISH_FREE_BYTES)   if Publish
+tx_fee(tx) = FEE_TX                                                               otherwise
+```
+
+This is the **only** fee definition, used everywhere: solvency (step 9), burn on `Ok`, burn on
+`Failed`.
+
+**Outcomes.**
+
+- **`rejected`** (failed static validation): not executed, **zero fee, nonce untouched**;
+  recorded in the block as `(tx_id, RejectReason)`.
+- **`Failed`** (failed at runtime — `min_amount_out` violated, insufficient balance, pool
+  missing at execution time, overflow): rollback to the snapshot, **nonce consumed**
+  (`account.nonce += 1`), `ExecStatus::Failed(reason)` in `results`.
+- **`Ok`**: effects applied, nonce consumed.
+
+**Fees and execution (frozen)**: the fees of ALL valid transactions are burned in phase 7,
+before any action executes — every transaction always pays the full fee (`Ok` and `Failed`),
+no action can spend funds earmarked for later fees, and the old `min()` clamp no longer
+exists. Then, for each transaction in order: (1) snapshot the state; (2) execute the action.
+A `Failed` rollback restores the snapshot; the fee, burned in phase 7, is outside the
+rollback by construction and never refunded.
+
+### 5.3 Nonce + shuffle (frozen)
+
+The global shuffle (§3.7) assigns **positions**. Then, **per-account normalization**: for
+each account with several transactions in the batch, let `P = {p1 < p2 < …}` be the positions
+of its transactions after the shuffle; its transactions are reassigned to `P` in **ascending
+nonce order**. Transactions of different accounts do not move.
+
+Properties: deterministic; the distribution of positions stays uniform; a contiguous sequence
+never fails because of internal disorder; an intermediate `Failed` does not block the
+account's later transactions (the nonce is consumed regardless).
+
+### 5.4 Canonical state root (frozen)
 
 ```
 h = blake3::Hasher::new()
-per tabella in [0x01 accounts, 0x02 tokens, 0x03 pairs, 0x04 htlcs, 0x05 global]:
-    h.update([tag_tabella])
-    per (k, v) nella tabella, con k in ordine lessicografico dei bytes borsh(k):
+for table in [0x01 accounts, 0x02 tokens, 0x03 pairs, 0x04 htlcs, 0x05 global]:
+    h.update([table_tag])
+    for (k, v) in table, with k in lexicographic order of the bytes of borsh(k):
         bk = borsh(k); bv = borsh(v)
         h.update(LE32(len(bk))); h.update(bk)
         h.update(LE32(len(bv))); h.update(bv)
 state_root = h.finalize()
 ```
 
-`global` (ordine di campo congelato, v0.9.1): `height: u64`, `total_staked: Amount`, `acc_per_stake: u128`, `staking_reserved: Amount`, `native_emitted: Amount`, `native_burned: Amount`, `account_count: u64`.
+`global` (field order frozen): `height: u64`, `total_staked: Amount`, `acc_per_stake: u128`,
+`staking_reserved: Amount`, `native_emitted: Amount`, `native_burned: Amount`,
+`account_count: u64`.
 
-**Encoding del singleton `global` (congelato v0.9.1)**: la tabella 0x05 contiene esattamente una coppia a chiave vuota: `h.update([0x05]); h.update(LE32(0)); h.update(LE32(len(borsh(global)))); h.update(borsh(global))` — nessuna inferenza richiesta a un implementatore non-Rust.
+**Encoding of the `global` singleton (frozen)**: table `0x05` contains exactly one pair with
+an empty key:
 
-**Invariante monetario a quattro bucket (RISCRITTO v0.9.1 — uguaglianza ESATTA per costruzione)**:
-`Σ balances[NATIVE] + Σ staked + Σ htlcs[token==NATIVE].amount + staking_reserved = GENESIS_SUPPLY + native_emitted − native_burned`
+```
+h.update([0x05]); h.update(LE32(0)); h.update(LE32(len(borsh(global)))); h.update(borsh(global))
+```
 
-Ogni unità nativa vive in **esattamente uno** di quattro posti: saldo liquido, stake, escrow HTLC, o passività di staking (`staking_reserved`). Nessuna unità "vive dentro una formula". Il vecchio invariante con `Σ pending` era **matematicamente falso** (doppia floor su basi diverse: `Σ⌊xᵢ⌋ ≤ ⌊Σxᵢ⌋` — controesempio in §8) ed è sostituito. `pending(a) = ⌊staked × (acc_per_stake − paid_acc) / PRECISION⌋` (v0.9.2, Synthetix letterale) è la formula derivata che determina quanto un settle *trasferisce* da `staking_reserved` al saldo — `staking_reserved ≥ Σ pending(a) ≥ 0` vale **per costruzione** (dimostrazione in §8), e la differenza è il rounding residue: passività del protocollo non attribuibile senza O(N), mai bruciata né girata a foundation. `native_emitted` significa esattamente: unità nominali create dal protocollo; `staking_reserved`: unità create come quota staking e non ancora trasferite a saldo.
+No inference is required from a non-Rust implementer.
+
+### 5.5 Five-bucket monetary invariant (exact equality by construction)
+
+```
+  Σ balances[NATIVE]
++ Σ staked
++ Σ htlcs[token == NATIVE].amount
++ Σ pairs[NATIVE side].reserve
++ staking_reserved
+    = GENESIS_SUPPLY + native_emitted − native_burned
+```
+
+Every native unit lives in **exactly one** of five places: liquid balance, stake, HTLC escrow,
+AMM reserve, or staking liability (`staking_reserved`). No unit "lives inside a formula".
+
+> **The AMM bucket was missing, and this is the correction (v0.9.3-en).** Earlier text listed
+> four buckets and omitted pool reserves. A pair may hold `NATIVE_TOKEN` on either side
+> (§4.1), and those units left somebody's balance to get there — so the moment anyone provided
+> native liquidity, the stated equality became false. Since §10 checks the invariant at *every
+> block*, a perfectly honest chain would have failed its own verification as soon as a native
+> pool was funded. The independent reference executor of §10 is what surfaced it: both
+> implementations agreed with each other and with the old text, and both reported the
+> invariant broken — the specification was wrong, not the code.
+
+The older invariant stated with `Σ pending` was **mathematically false** (double flooring over
+different bases: `Σ⌊xᵢ⌋ ≤ ⌊Σxᵢ⌋`) and has been replaced.
+`pending(a) = ⌊staked × (acc_per_stake − paid_acc) / PRECISION⌋` is the derived formula
+determining how much a settle *transfers* from `staking_reserved` to the balance;
+`staking_reserved ≥ Σ pending(a) ≥ 0` holds **by construction** (proof in §8), and the
+difference is the rounding residue: a protocol liability, not attributable without O(N) work,
+never burned and never credited to anyone.
+
+Pool reserves are a liability of the pair to its LP holders in exactly the same sense, and are
+accounted the same way: present in the equality, owned by nobody's balance.
+
+`native_emitted` means exactly: nominal units created by the protocol. `staking_reserved`:
+units created as the staker share and not yet moved into a balance.
 
 ---
 
-## 6. Matematica AMM (Uniswap V2 generalizzata al fee tier)
+## 6. AMM math — POPCORN-V2-MATH
 
-Aritmetica intermedia in `U256`, risultato in `u128` con check. Divisioni: floor. Nessun float. `fee_num = 10_000 - fee_bps`.
+Uniswap V2 generalized to fee tiers. Intermediate arithmetic in `U256`, results back in `u128`
+with checks. Division is floor. No floats. `fee_num = 10_000 - fee_bps`.
 
-**Exact-in (hop):**
+**Exact-in (per hop):**
+
 ```
 amount_in_with_fee = amount_in * fee_num
 amount_out = (amount_in_with_fee * reserve_out)
            / (reserve_in * 10_000 + amount_in_with_fee)
 ```
 
-**Exact-out (hop):**
+**Exact-out (per hop):**
+
 ```
+require(amount_out < reserve_out)   // violation ⇒ Failed(SlippageExceeded)
 amount_in = (reserve_in * amount_out * 10_000)
           / ((reserve_out - amount_out) * fee_num) + 1
-require(amount_out < reserve_out)   // violazione ⇒ Failed(SlippageExceeded) (v0.9.3)
 ```
 
-**Multi-hop**: exact-in in avanti hop per hop, `require(out_finale >= min_amount_out)`. **Exact-out (sequenza esplicita, v0.9.1)**: con `path = P1..Pk` e output finale desiderato `X`: `in_k = exact_out(Pk, X)`, `in_{k−1} = exact_out(P_{k−1}, in_k)`, …, `in_1 = exact_out(P1, in_2)`; `require(in_1 <= max_amount_in)`; poi esecuzione **in avanti** con esattamente gli importi della passata a ritroso (`P1: in_1 → in_2`, …, `Pk: in_k → X`), mai ricalcolati. Ogni hop aggiorna le riserve della sua pair; la fee dell'hop resta agli LP di quel pool. La tx multi-hop è atomica (§5.2).
+**Multi-hop.** Exact-in runs forward hop by hop, then `require(final_out >= min_amount_out)`.
 
-**Liquidità (lifecycle congelato):**
+Exact-out runs backward first: with `path = P1..Pk` and desired final output `X`,
+`in_k = exact_out(Pk, X)`, `in_{k−1} = exact_out(P_{k−1}, in_k)`, …,
+`in_1 = exact_out(P1, in_2)`; then `require(in_1 <= max_amount_in)`; then execution goes
+**forward** with exactly the amounts from the backward pass (`P1: in_1 → in_2`, …,
+`Pk: in_k → X`), never recomputed. Each hop updates its own pair's reserves and the hop's fee
+stays with that pool's LPs. A multi-hop transaction is atomic (§5.2).
+
+**Liquidity lifecycle (frozen):**
+
 ```
-genesi (reserve0 == 0 && reserve1 == 0 && lp_supply == 0):
+genesis (reserve0 == 0 && reserve1 == 0 && lp_supply == 0):
             liquidity = integer_sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY
             require(liquidity > 0)
-            // MINIMUM_LIQUIDITY accreditata a lp_supply ma a nessun account (bruciata)
+            // MINIMUM_LIQUIDITY is credited to lp_supply but to no account (burned)
 
-ri-genesi (reserve0 == 0 && reserve1 == 0 && lp_supply == MINIMUM_LIQUIDITY):
-            // pair completamente svuotata: riparte con la formula genesi
+re-genesis (reserve0 == 0 && reserve1 == 0 && lp_supply == MINIMUM_LIQUIDITY):
+            // fully drained pair: restarts with the genesis formula
             liquidity = integer_sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY
             require(liquidity > 0)
-            // le MINIMUM_LIQUIDITY già bruciate restano le uniche bruciate
-            // reserve entrambe 0 con lp_supply > MINIMUM_LIQUIDITY → Failed
-            // (guard: LP residue su riserve nulle ruberebbero quota ai nuovi depositanti;
-            //  vanno prima bruciate con RemoveLiquidity a resa nulla, poi la pair riparte)
+            // the already-burned MINIMUM_LIQUIDITY stays the only burned amount
+            // both reserves 0 with lp_supply > MINIMUM_LIQUIDITY → Failed(ReGenesisGuard)
+            // (guard: residual LP over null reserves would steal share from new
+            //  depositors; they must first be burned via a zero-yield RemoveLiquidity,
+            //  after which the pair restarts)
 
-successiva: liquidity = min(amount0 * lp_supply / reserve0,
+subsequent: liquidity = min(amount0 * lp_supply / reserve0,
                             amount1 * lp_supply / reserve1)
             require(liquidity > 0)
 
-rimozione:  amount_i = lp_amount * reserve_i / lp_supply
+removal:    amount_i = lp_amount * reserve_i / lp_supply
             require(amount_i >= amount_i_min)
 ```
 
-**Zero-output vietato (congelato)**: ogni hop di swap richiede `amount_out >= 1`; in caso contrario la tx è `Failed` (niente swap a resa nulla che pagano solo fee per muovere dust).
+**Zero output forbidden (frozen)**: every swap hop requires `amount_out >= 1`; otherwise the
+transaction is `Failed(ZeroOutput)` — no zero-yield swaps that only pay a fee to move dust.
 
-**Regole di validazione AMM esplicite (congelate v0.8.4)** — runtime, esito `Failed` se violate:
-- `CreatePair`: `token_a != token_b`; entrambi esistenti (`NATIVE` o record `Token`); nessuno dei due è un `LpTokenId`; `fee_bps ∈ FEE_TIERS` (già statica); `PairId` non esistente.
-- `AddLiquidity` (formalizzata v0.9.1): pair esistente; `amount0_desired > 0` e `amount1_desired > 0`. Per pool con riserve non nulle gli importi EFFETTIVI sono calcolati così (Router02):
-  `a1_opt = ⌊amount0_desired × reserve1 / reserve0⌋`; se `a1_opt ≤ amount1_desired` → `(actual0, actual1) = (amount0_desired, a1_opt)`; altrimenti `a0_opt = ⌊amount1_desired × reserve0 / reserve1⌋` e `(actual0, actual1) = (a0_opt, amount1_desired)`.
-  `require(actual0 ≥ amount0_min && actual1 ≥ amount1_min)`; si addebitano **solo gli actual** (l'eccesso `desired − actual` non viene MAI toccato); `reserve += actual`; mint sulla formula di liquidità con gli actual. Nei rami genesi/ri-genesi gli actual coincidono coi desired. Addebitare i desired è un'implementazione errata.
-- `RemoveLiquidity`: pair esistente; `lp_amount > 0`; `lp_amount ≤` saldo LP del signer.
-- `Swap*`: path non vuoto e `≤ MAX_PATH_LEN` (già statica); `token_in` appartiene alla prima pair; ogni hop esiste e contiene il token corrente; `amount_in > 0` / `amount_out > 0`.
+**Explicit AMM validation rules** (runtime; `Failed` if violated):
 
-Invariante `k_after ≥ k_before` (scope v0.9.1): vale **solo per gli hop di swap riusciti** — NON si applica ad `AddLiquidity`/`RemoveLiquidity`, che cambiano k per definizione. Vietati pool con LP token come lato (§4.1). `u128 × u128 < U256::MAX` sempre: niente overflow U256.
+- **`CreatePair`**: `token_a != token_b`; both exist (`NATIVE` or a `Token` record); neither is
+  an `LpTokenId`; `fee_bps ∈ FEE_TIERS` (already static); the `PairId` does not exist yet.
+- **`AddLiquidity`**: the pair exists; `amount0_desired > 0` and `amount1_desired > 0`. For
+  pools with non-zero reserves the EFFECTIVE amounts follow Router02:
+
+  ```
+  a1_opt = ⌊amount0_desired × reserve1 / reserve0⌋
+  if a1_opt ≤ amount1_desired:  (actual0, actual1) = (amount0_desired, a1_opt)
+  else:                         a0_opt = ⌊amount1_desired × reserve0 / reserve1⌋
+                                (actual0, actual1) = (a0_opt, amount1_desired)
+  require(actual0 ≥ amount0_min && actual1 ≥ amount1_min)
+  ```
+
+  Only the **actual** amounts are debited (the excess `desired − actual` is NEVER touched);
+  `reserve += actual`; minting uses the liquidity formula with the actual amounts. In the
+  genesis and re-genesis branches the actuals equal the desired amounts. Debiting the desired
+  amounts is an incorrect implementation.
+- **`RemoveLiquidity`**: the pair exists; `lp_amount > 0`; `lp_amount ≤` the signer's LP
+  balance.
+- **`Swap*`**: non-empty path of length `≤ MAX_PATH_LEN` (already static); `token_in` belongs
+  to the first pair; every hop exists and contains the current token; `amount_in > 0` /
+  `amount_out > 0`.
+
+The `k_after ≥ k_before` invariant holds **only for successful swap hops** — it does NOT apply
+to `AddLiquidity`/`RemoveLiquidity`, which change `k` by definition. Pools with an LP token as
+a side are forbidden (§4.1). `u128 × u128 < U256::MAX` always: no U256 overflow.
 
 ---
 
-## 7. Economia (v0.5 — congelata)
+## 7. Economics
 
-### 7.1 Fair launch e foundation
-- **Nessuna allocazione al genesis** (`GENESIS_SUPPLY = 0`): nessun premine, nessuna vendita primaria, nessun faucet, nessun invito. Tutti i nativi che esisteranno nascono dall'emissione (§7.2).
-- `FOUNDATION` è un account normale (chiave dell'operatore, movimenti pubblici) che riceve la quota foundation dell'emissione. È il **bootstrap** dell'economia: i primi token in circolazione sono la sua quota dal blocco 1, che distribuisce via grant, pagamenti o liquidità nei pool perché altri possano transare e stakare.
-- **La foundation può stakare** i propri fondi e percepire la quota staker come chiunque: scelta deliberata, coerente con "account normale" — nessuna regola speciale nel codice, e la concentrazione risultante è pubblica e leggibile on-chain da chiunque.
-- Il mercato secondario del nativo (utenti che scambiano tra loro contro asset esterni) è off-chain e fuori protocollo.
+### 7.1 Fair launch and the foundation
 
-### 7.2 Emissione per batch con halving (unica fonte di nuova supply)
+- **No genesis allocation** (`GENESIS_SUPPLY = 0`): no premine, no primary sale, no faucet, no
+  invites. Every native unit that will ever exist is born from emission (§7.2).
+- `FOUNDATION` is an ordinary account (the operator's key, public movements) receiving the
+  foundation share of emission. It is the economy's **bootstrap**: the first tokens in
+  circulation are its share from block 1, distributed through grants, payments or pool
+  liquidity so that others can transact and stake.
+- **The foundation may stake** its funds and earn the staker share like anyone else: a
+  deliberate choice, consistent with "ordinary account" — no special rule in the code, and the
+  resulting concentration is public and readable on-chain by anyone.
+- The secondary market for the native token (users trading it against external assets) is
+  off-chain and outside the protocol.
+
+### 7.2 Per-batch emission with halving (the only source of new supply)
+
 ```
-emission_index    = height − 1                     // 0-based: blocco 1 → indice 0
+emission_index    = height − 1                     // 0-based: block 1 → index 0
 EMISSION(height)  = EMISSION_0 >> (emission_index / HALVING_INTERVAL)
-// così ogni epoca contiene ESATTAMENTE HALVING_INTERVAL batch
-// (blocchi 1..=10_512_000 → epoca 0; dal 10_512_001 → epoca 1)
+// so each epoch contains EXACTLY HALVING_INTERVAL batches
+// (blocks 1..=10_512_000 → epoch 0; from 10_512_001 → epoch 1)
 
 staker_share     = EMISSION(height) * EMISSION_STAKER_BPS / 10_000
 foundation_share = EMISSION(height) - staker_share
 
-se total_staked == 0:
-    // la quota staker NON viene emessa: non nasce (né a foundation, né bruciata)
+if total_staked == 0:
+    // the staker share is NOT emitted: it is never born (not to the foundation,
+    // not burned)
     native_emitted += foundation_share
-altrimenti:
+else:
     native_emitted += EMISSION(height)
 ```
-- `staker_share` entra INTERO nell'accumulatore/riserva staking (§8, v0.9.2 — nessuna dust: la floor vive solo lato utente); `foundation_share` accreditata a `FOUNDATION`. Identità per batch: emissione effettiva = `staker_share + foundation_share` (con `total_staked == 0`: solo `foundation_share`). **Semantica del cap (senza ambiguità, v0.9.2)**: il 15% è il cap ESATTO sulla **quota nominale** di ogni emissione — senza dust, la foundation riceve esattamente `EMISSION − staker_share`, mai un'unità in più. Nei batch con `total_staked == 0` la quota staker (85%) **non nasce**: la foundation riceve comunque solo il suo 15% nominale — che però è il **100% dell'emissione effettiva** di quel batch. La frase "capped al 15%" è vera rispetto all'emissione nominale, non rispetto all'emissione effettiva dei batch senza staker: è esattamente il bootstrap del fair launch, dichiarato.
-- **Momento dell'emissione (congelato)**: applicata esclusivamente alla **chiusura** del batch `h`, dopo l'esecuzione di tutte le tx; **non spendibile dalle tx del medesimo batch**.
-- **`native_emitted` (congelato)**: conta esclusivamente l'emissione già entrata nello stato economico, nel batch in cui avviene — incluse le quote accreditate alla riserva staking (`staking_reserved`) non ancora reclamate. Non è "reward già pagate".
-- Lo shift è intero su `u128`: `EMISSION = 0` da quando `emission_index / HALVING_INTERVAL ≥ 128` (o prima, quando lo shift esaurisce i bit di `EMISSION_0`). L'emissione totale effettiva è la somma discreta batch per batch, ricalcolata dal verificatore nel replay.
-- **Cap effettivo esatto** (ora perfettamente allineato all'indice 0-based): `GENESIS_SUPPLY + HALVING_INTERVAL × Σᵢ₌₀..₁₂₇ (EMISSION_0 >> i)`. Limite superiore comodo: `GENESIS_SUPPLY + 2 × EMISSION_0 × HALVING_INTERVAL`. Con i parametri proposti (genesis 0): < 21,03 M — ulteriormente ridotto dai batch con `total_staked == 0`, la cui quota staker non nasce mai.
 
-### 7.3 CreateToken (invariato)
-- `name`: 16 byte ASCII stampabile, zero-padded; **nessuna unicità** (l'identità è l'id; l'impersonation di nome è parte del gioco).
-- `supply ∈ 1..=MAX_SUPPLY`; tutta al creatore all'esecuzione.
+- `staker_share` enters the staking accumulator and reserve **whole** (§8 — no dust: flooring
+  lives only on the user side); `foundation_share` is credited to `FOUNDATION`. Per-batch
+  identity: effective emission = `staker_share + foundation_share` (with `total_staked == 0`:
+  `foundation_share` alone).
+- **Cap semantics (unambiguous)**: 15% is the EXACT cap on the **nominal share** of each
+  emission — with no dust, the foundation receives exactly `EMISSION − staker_share`, never
+  one unit more. In batches with `total_staked == 0` the staker share (85%) **is not born**:
+  the foundation still receives only its nominal 15% — which happens to be **100% of that
+  batch's effective emission**. "Capped at 15%" is true with respect to nominal emission, not
+  with respect to the effective emission of staker-less batches: that is exactly the fair
+  launch bootstrap, declared.
+- **Timing (frozen)**: emission is applied exclusively at the **close** of batch `h`, after
+  every transaction has executed, and is **not spendable by transactions of the same batch**.
+- **`native_emitted` (frozen)**: counts only emission that has already entered economic state,
+  in the batch where it happens — including shares credited to the staking reserve
+  (`staking_reserved`) and not yet claimed. It is not "rewards already paid".
+- The shift is integer over `u128`: `EMISSION = 0` once
+  `emission_index / HALVING_INTERVAL ≥ 128` (or earlier, when the shift exhausts the bits of
+  `EMISSION_0`). Total effective emission is the discrete sum batch by batch, recomputed by
+  the verifier during replay.
+- **Exact effective cap**:
+  `GENESIS_SUPPLY + HALVING_INTERVAL × Σᵢ₌₀..₁₂₇ (EMISSION_0 >> i)`.
+  Convenient upper bound: `GENESIS_SUPPLY + 2 × EMISSION_0 × HALVING_INTERVAL`. With the
+  proposed parameters (genesis 0): < 21.03 M — reduced further by staker-less batches, whose
+  staker share is never born.
 
-### 7.4 Fee: burn totale (ispirato al meccanismo deflattivo di EIP-1559 — senza base/priority fee: la fee è piatta)
-- `FEE_TX` piatta per tx eseguita (`Ok` e `Failed`), **bruciata**: `native_burned += fee`. Le `rejected` non pagano. Una multi-hop paga una sola `FEE_TX`.
-- Le fee di swap (`fee_bps`) restano flusso separato, interamente agli LP dell'hop (non bruciate).
-- Dinamica monetaria: emissione decrescente contro burn proporzionale all'uso — la supply circolante può diventare deflattiva a regime.
+### 7.3 CreateToken
 
-### 7.5 Publish — bacheca dati (oracoli portati dagli utenti)
-- `Publish { topic, data }` non tocca lo stato: il dato vive **solo nel blocco**. Il ledger fa da bacheca ordinata e timestampata (round drand = timestamp crittografico); lo stato non cresce di un byte.
-- Fee del publish: la `tx_fee` canonica (§5.2), interamente bruciata — vale identica per solvency, `Ok` e `Failed`.
-- Autenticazione nativa: la firma ed25519 del publisher è l'identità del feed; la sua storia è tutta on-chain.
-- **Ordine canonico del feed (v0.9.1)**: per publish sullo stesso `topic` nello stesso blocco, l'ordine è la **posizione di esecuzione** in `txs` (lo stesso ordine usato dalla scansione di auto-settlement §7.6).
-- **Nessuna logica on-chain consuma questi dati** (niente VM): i consumatori sono bot e servizi off-chain — coordinamento, feed di prezzo, settlement per convenzione. Uso tipico: update firmati di un provider esterno (es. feed stile Pyth) ripubblicati da chiunque, con verifica della firma del provider a carico del consumatore.
+- `name`: 16 bytes of printable ASCII, zero-padded; **no uniqueness** (identity is the id;
+  name impersonation is part of the game).
+- `supply ∈ 1..=MAX_SUPPLY`; all of it goes to the creator at execution.
 
-### 7.6 HTLC — swap atomici cross-chain portati dagli utenti (congelato)
+### 7.4 Fees: total burn
+
+Inspired by the deflationary mechanism of EIP-1559 — without base/priority fees: the fee is
+flat.
+
+- `FEE_TX` is flat per executed transaction (`Ok` and `Failed`) and **burned**:
+  `native_burned += fee`. `rejected` transactions pay nothing. A multi-hop pays a single
+  `FEE_TX`.
+- Swap fees (`fee_bps`) remain a separate flow, entirely to the hop's LPs (never burned).
+- Monetary dynamics: decreasing emission against a burn proportional to usage — circulating
+  supply can turn deflationary at steady state.
+
+### 7.5 Publish — the data board (user-carried oracles)
+
+- `Publish { topic, data }` does not touch state: the data lives **only in the block**. The
+  ledger acts as an ordered, timestamped board (the drand round is a cryptographic timestamp);
+  state does not grow by a single byte.
+- The publish fee is the canonical `tx_fee` (§5.2), entirely burned — identical for solvency,
+  `Ok` and `Failed`.
+- Native authentication: the publisher's ed25519 signature is the feed's identity, and its
+  history is entirely on-chain.
+- **Canonical feed order**: for publishes on the same `topic` within the same block, the order
+  is the **execution position** in `txs` (the same order used by the auto-settlement scan of
+  §7.6).
+- **No on-chain logic consumes this data** (there is no VM): consumers are off-chain bots and
+  services — coordination, price feeds, settlement by convention. Typical use: signed updates
+  from an external provider (e.g. a Pyth-style feed) republished by anyone, with provider
+  signature verification left to the consumer.
+
+### 7.6 HTLC — user-carried atomic cross-chain swaps (frozen)
 
 ```rust
 struct Htlc {
     id: [u8;32],            // blake3(0x04 || sender || LE64(payload.nonce))
     sender: AccountId,
-    recipient: AccountId,   // fissato al lock, immutabile
+    recipient: AccountId,   // fixed at lock time, immutable
     token: [u8;32],         // NATIVE | TokenId | LpTokenId
     amount: Amount,
-    hashlock: [u8;32],      // sha256(preimage) — NON blake3, vedi sotto
+    hashlock: [u8;32],      // sha256(preimage) — NOT blake3, see below
     expiry_round: u64,
 }
 ```
 
-**Semantica (congelata)**. `HtlcLock`: debita `amount` dal sender; i fondi vivono nella tabella `htlcs` dello stato — **nessun account li possiede, nemmeno la node key può toccarli**. `HtlcClaim`: valida sse `sha256(preimage) == hashlock` **e** `R <= expiry_round`; accredita `amount` al `recipient` (chiunque può inviarla — conta il preimage, non il mittente). `HtlcRefund`: valida sse `R > expiry_round`; accredita `amount` al `sender`, **invocabile da chiunque** (garbage collection dello stato senza dipendere dal sender). Confine claim/refund netto: `<=` contro `>`, nessuna sovrapposizione. L'HTLC risolto è rimosso dalla tabella.
+**Semantics (frozen).**
 
-**Auto-settlement via Publish (congelato, v0.8.1; sequenza pinnata v0.8.3)**. **Dopo l'esecuzione sequenziale di tutte le tx** e **prima dell'emissione**, il nodo scandisce in ordine di esecuzione i `Publish` eseguiti con `Ok` nel batch: (conseguenza: se nello stesso batch un `HtlcClaim` regola l'HTLC durante l'esecuzione, il `Publish` col medesimo preimage trova l'indice vuoto ed è un no-op — il claim vince, deterministicamente) per ogni `data` di **esattamente 32 byte**, se `sha256(data)` corrisponde all'hashlock di un HTLC aperto con `expiry_round >= R`, quell'HTLC si regola verso il `recipient` come un claim (rimozione + accredito). Lookup O(1) su un **indice `hashlock → htlc_id`**: **cache derivabile** dalla tabella `htlcs`, **esclusa dallo state root** (§5.4) e ricostruita deterministicamente al replay — non può divergere senza che diverga la tabella impegnata (aggiornato a lock/claim/refund/settle; hashlock duplicato: il lock successivo con hashlock già indicizzato è `Failed: HtlcDuplicateHashlock` — un hashlock, un HTLC). Proprietà: il preimage è **carrier-independent** — può consegnarlo il recipient, un watchtower, o qualsiasi terzo, anche in più copie ridondanti; il recipient può essere offline; ogni settlement è replay-verificabile (il preimage sta nel blocco). `HtlcClaim` resta come via diretta equivalente.
+- `HtlcLock` debits `amount` from the sender; the funds live in the state's `htlcs` table —
+  **no account owns them, not even the node key can touch them**.
+- `HtlcClaim` is valid iff `sha256(preimage) == hashlock` **and** `R <= expiry_round`; it
+  credits `amount` to the `recipient`. Anyone may send it — what counts is the preimage, not
+  the sender.
+- `HtlcRefund` is valid iff `R > expiry_round`; it credits `amount` to the `sender` and is
+  **invocable by anyone** (state garbage collection without depending on the sender).
 
-**Meccanismo, non policy**: il protocollo non conosce l'altra chain né l'accordo tra le parti — fornisce solo il lucchetto condizionale deterministico. Swap, bridge, escrow e watchtower sono protocolli **degli utenti**, costruiti sopra.
+The claim/refund boundary is sharp: `<=` against `>`, no overlap. A resolved HTLC is removed
+from the table.
 
-**Perché SHA-256**: è l'unico punto del protocollo che non usa blake3 — deliberatamente. Lo swap atomico richiede lo **stesso hash sui due lati**, e SHA-256 è lo standard di Bitcoin script, Lightning, EVM e Solana. Preimage fisso a **32 byte esatti** (standard Lightning): chiude i preimage-length attack noti su Bitcoin script. Dipendenza: crate `sha2` (RustCrypto, famiglia coperta dall'audit NCC 2020).
+**Auto-settlement via Publish (frozen).** **After every transaction has executed** and
+**before emission**, the node scans, in execution order, the `Publish` transactions that
+executed `Ok` in the batch: for each `data` of **exactly 32 bytes**, if `sha256(data)` matches
+the hashlock of an open HTLC with `expiry_round >= R`, that HTLC settles to its `recipient`
+exactly like a claim (removal + credit).
 
-**Sicurezza — da letteratura, dichiarata**:
-- **Censura del claim (classe MAD-HTLC)**: su chain PoW/PoS l'attacco è corrompere i miner perché ignorino il claim fino al timeout; da noi il "miner" è l'operatore unico. Con l'auto-settlement il bersaglio non è più "la tx di Bob": il preimage può arrivare da chiunque, in qualsiasi blob cifrato — per censurarlo il nodo deve scartare **alla cieca e in massa** blob che vede solo a decifratura avvenuta, lasciando ricevute §9.2 che il replay pubblico smaschera. **Caso limite dichiarato**: l'inclusione resta l'unico cancello (§1) — un operatore disposto ad auto-incriminarsi può scartare tutto fino all'expiry; finestre lunghe trasformano questo in un sabotaggio pubblico prolungato, non in un colpo di mano. Il gradino oltre non è un meccanismo più furbo: è un secondo produttore di blocchi, cioè un'altra architettura.
-- **Stagger dei timeout (normativo per gli utenti)**: nello swap a due HTLC, il lato che viene reclamato per primo deve scadere **molto prima** del refund dell'altro lato (T2 < T1), con margine per i ritardi di entrambe le chain. Timeout troppo corti sono l'errore classico.
-- **Free option / sore loser**: l'HTLC dà a chi conosce il preimage un'opzione gratuita fino all'expiry. È strutturale, non un bug del nostro protocollo; mitigazione pratica: spezzare swap grossi in tranche piccole.
-- **Vita massima**: `expiry_round <= R + HTLC_MAX_LIFETIME_ROUNDS` — lo stato non accumula lock eterni.
-- **Griefing da hashlock duplicato (threat model)**: "un hashlock, un HTLC" implica che chi locka per primo un hashlock noto blocca gli altri (al costo della propria fee e del proprio capitale lockato). Difesa utente standard: hashlock fresco per ogni swap, mai pre-annunciato in chiaro — il tlock copre comunque il lock fino all'inclusione.
+Consequence of the pinned sequence: if an `HtlcClaim` settles the HTLC during execution in the
+same batch, a `Publish` carrying the same preimage finds an empty index and is a no-op — the
+claim wins, deterministically.
 
-Il protocollo resta senza bridge: gli HTLC sono la primitiva con cui **gli utenti** costruiscono i propri swap contro qualsiasi chain con hashlock, senza custode e senza che POPCORN tocchi mai asset esterni.
+Lookup is O(1) over a `hashlock → htlc_id` **index**: a **derivable cache** built from the
+`htlcs` table, **excluded from the state root** (§5.4) and deterministically rebuilt at
+replay — it cannot diverge without the committed table diverging. It is updated on
+lock/claim/refund/settle. Duplicate hashlocks: a later lock on an already-indexed hashlock is
+`Failed(HtlcDuplicateHashlock)` — one hashlock, one HTLC.
+
+Property: the preimage is **carrier-independent** — the recipient, a watchtower or any third
+party can deliver it, even redundantly; the recipient may be offline; every settlement is
+replay-verifiable (the preimage is in the block). `HtlcClaim` remains an equivalent direct
+route.
+
+**Mechanism, not policy**: the protocol knows neither the other chain nor the agreement
+between the parties — it provides only the deterministic conditional lock. Swaps, bridges,
+escrow and watchtowers are **user** protocols built on top.
+
+**Why SHA-256**: this is the only point in the protocol that does not use blake3 —
+deliberately. An atomic swap requires the **same hash on both sides**, and SHA-256 is the
+standard of Bitcoin script, Lightning, EVM and Solana. The preimage is fixed at **exactly 32
+bytes** (the Lightning standard), which closes the known preimage-length attacks on Bitcoin
+script.
+
+**Security — from the literature, declared.**
+
+- **Claim censorship (MAD-HTLC class)**: on PoW/PoS chains the attack is bribing miners to
+  ignore the claim until timeout; here the "miner" is the single operator. With
+  auto-settlement the target is no longer "Bob's transaction": the preimage can arrive from
+  anyone, inside any encrypted blob — to censor it the node must discard **blindly and en
+  masse** blobs it only sees after decryption, leaving §9.2 receipts that public replay
+  exposes.
+  **Declared edge case**: inclusion remains the only gate (§1) — an operator willing to
+  incriminate itself can discard everything until expiry. Long windows turn this into
+  prolonged public sabotage rather than a quiet heist. The step beyond is not a cleverer
+  mechanism: it is a second block producer, i.e. a different architecture.
+- **Timeout staggering (normative for users)**: in a two-HTLC swap, the side claimed first
+  must expire **well before** the other side's refund (T2 < T1), with margin for both chains'
+  delays. Timeouts that are too short are the classic mistake.
+- **Free option / sore loser**: an HTLC gives whoever knows the preimage a free option until
+  expiry. This is structural, not a bug in our protocol; practical mitigation: split large
+  swaps into small tranches.
+- **Maximum lifetime**: `expiry_round <= R + HTLC_MAX_LIFETIME_ROUNDS` — state does not
+  accumulate eternal locks.
+- **Duplicate-hashlock griefing (threat model)**: "one hashlock, one HTLC" implies that
+  whoever locks a known hashlock first blocks the others (at the cost of their own fee and
+  locked capital). Standard user defence: a fresh hashlock per swap, never pre-announced in
+  the clear — the timelock covers the lock until inclusion anyway.
+
+The protocol stays bridge-free: HTLCs are the primitive **users** build their own swaps with,
+against any chain that has hashlocks, with no custodian and without POPCORN ever touching
+external assets.
 
 ---
 
-## 8. Staking — distribuzione O(1)
+## 8. Staking — O(1) distribution
+
+A literal transcription of the audited Synthetix `StakingRewards` math.
 
 ```
 PRECISION = 10^18
 
-per batch (chiusura) — Synthetix StakingRewards letterale (v0.9.2):
+per batch (at close):
     acc_per_stake    += (staker_share * PRECISION) / total_staked   // floor
-    staking_reserved += staker_share                                // INTERO: la riserva detiene
-                                                                    // tutto il monte reward, come
-                                                                    // il contratto Synthetix. Nessuna dust.
-    // se total_staked == 0 → staker_share non emessa (§7.2); nessun accredito
+    staking_reserved += staker_share                                // WHOLE: the reserve holds
+                                                                    // the entire reward pot,
+                                                                    // like the Synthetix
+                                                                    // contract. No dust.
+    // if total_staked == 0 → staker_share is not emitted (§7.2); nothing is credited
 
-pending(a) = (a.staked * (acc_per_stake - a.paid_acc)) / PRECISION  // UNA sola floor,
-             // sulla differenza (earned di Synthetix): sempre ≤ entitlement vero
+pending(a) = (a.staked * (acc_per_stake - a.paid_acc)) / PRECISION  // ONE floor only,
+             // over the difference (Synthetix "earned"): always ≤ the true entitlement
 
-Stake/Unstake/ClaimRewards (ordine congelato):
-    1. p = pending(a); PAGA p come TRASFERIMENTO: staking_reserved -= p; balance += p
-       // il totale non cambia: B + R = (B+p) + (R−p) — parte del property test
-    2. aggiorna a.staked (dopo il regolamento, mai prima)
-    3. a.paid_acc = acc_per_stake                                   // snapshot, non un importo
-
-DIMOSTRAZIONE DI SOLVIBILITÀ (v0.9.2): ogni batch aggiunge staker_share sia a
-staking_reserved sia al monte-entitlement vero Σ s_a·Δacc/P; ogni settle paga
-⌊s·(acc−paid)/P⌋ ≤ entitlement maturato dall'account nell'intervallo. Quindi
-Σ pagato + Σ pending ≤ Σ staker_share = staking_reserved cumulato
-⇒ staking_reserved ≥ Σ pending ≥ 0, SEMPRE, per costruzione.
+Stake / Unstake / ClaimRewards (frozen order):
+    1. p = pending(a); PAY p AS A TRANSFER: staking_reserved -= p; balance += p
+       // the total does not change: B + R = (B+p) + (R−p) — part of the property test
+    2. update a.staked (after settlement, never before)
+    3. a.paid_acc = acc_per_stake                                   // a snapshot, not an amount
 ```
 
-**Guard di liquidità (congelato)**: `Stake` richiede a runtime, dopo il prelievo della fee, `saldo_nativo ≥ amount + FEE_TX` — deve restare almeno una `FEE_TX` liquida. Senza questo guard un account che staka il 100% resterebbe **permanentemente bloccato**: nessuna tx (nemmeno `Unstake`) supererebbe la fee-solvency, con valore chiuso dentro per sempre.
+**Solvency proof.** Every batch adds `staker_share` both to `staking_reserved` and to the true
+entitlement pot `Σ sₐ·Δacc/P`; every settle pays `⌊s·(acc−paid)/P⌋ ≤` the entitlement accrued
+by that account over the interval. Therefore
 
-**Aritmetica (congelato v0.8.3)**: tutte le moltiplicazioni `staked × acc_per_stake` e `staker_share × PRECISION` avvengono in **intermedie U256** (come §6), risultato riconvertito in u128. Bound, tutti incondizionati grazie alla supply finita: i risultati (`pending`; `paid_acc` è un valore di `acc_per_stake`, quindi ne eredita il tappo) rientrano in u128 (≤ ~1,9×10³² nel caso patologico); **`acc_per_stake` stesso è tappato dall'halving** — anche con `total_staked = 1` in ogni batch per l'eternità, il suo massimo è l'intera emissione staker storica × PRECISION ≈ 0,85 × 21,02M × 10⁹ × 10¹⁸ ≈ 1,8×10³⁴, quattro ordini sotto u128::MAX. Nessun campo può sforare, senza ipotesi sull'orizzonte di vita della chain. Le intermedie U256 restano obbligatorie: è il *prodotto* `staked × acc` (fino a ~10⁵⁰) a non stare in u128, non i suoi risultati.
+```
+Σ paid + Σ pending ≤ Σ staker_share = cumulative staking_reserved
+⇒ staking_reserved ≥ Σ pending ≥ 0, ALWAYS, by construction.
+```
 
-**Nota Unstake a saldo zero**: un account che fa `Unstake` totale riceve stake+pending come saldo liquido, quindi non si blocca; chi comunque arrivasse a saldo < FEE_TX resta inattivo finché non riceve fondi — via d'uscita esterna sempre esistente, dichiarata accettabile.
+**Liquidity guard (frozen)**: `Stake` requires at runtime, after the fee has been burned,
+`native_balance ≥ amount + FEE_TX` — at least one `FEE_TX` must stay liquid. Without this
+guard, an account staking 100% would be **permanently stuck**: no transaction (not even
+`Unstake`) would pass fee solvency, with value locked inside forever. Equivalent pre-fee
+form: `balance ≥ tx_fee + amount + FEE_TX`. Violation ⇒ `Failed(StakeLiquidityGuard)`.
 
-**Un solo residuo (v0.9.2)**: con la riserva intera, la dust d'accumulatore non esiste più. Resta il **rounding residue** `staking_reserved − Σ pending ≥ 0`: le frazioni che la floor lato-utente lascia nella riserva. È passività del protocollo — non attribuibile senza O(N), quindi né bruciata né regalata: resta lì, dichiarata, e col fix ha finalmente il segno giusto.
+**Arithmetic (frozen)**: every `staked × acc_per_stake` and `staker_share × PRECISION`
+multiplication happens in **U256 intermediates** (as in §6), with the result converted back to
+`u128`. The bounds are unconditional thanks to finite supply: results (`pending`; `paid_acc`
+is a value of `acc_per_stake` and inherits its ceiling) fit in `u128` (≤ ~1.9×10³² in the
+pathological case), and **`acc_per_stake` itself is capped by halving** — even with
+`total_staked = 1` in every batch forever, its maximum is the entire historical staker
+emission × PRECISION ≈ 0.85 × 21.02M × 10⁹ × 10¹⁸ ≈ 1.8×10³⁴, four orders below `u128::MAX`.
+No field can overflow, with no assumption about the chain's lifetime. U256 intermediates
+remain mandatory: it is the *product* `staked × acc` (up to ~10⁵⁰) that does not fit in
+`u128`, not its results.
 
-**Gate obbligatorio pre-genesis (ESTESO v0.9.2)**: property test consensus-grade — milioni di sequenze casuali di emission/stake/unstake/claim con distribuzioni arbitrarie e PRECISION anche estreme, con verifica **dopo ogni singola operazione** di: (a) invariante a quattro bucket (uguaglianza esatta); (b) conservazione del totale in ogni settle; (c) **`staking_reserved ≥ Σ pending ≥ 0`** — l'asserzione (c) è quella che il gate v0.9.1 non aveva e che avrebbe intercettato il bug.
+**Zero-balance Unstake note**: an account doing a full `Unstake` receives stake + pending as
+liquid balance, so it does not get stuck; anyone who still ends below `FEE_TX` stays inactive
+until they receive funds — an external way out always exists, declared acceptable.
 
-**Guard di liquidità — wording chiarito (v0.9.1)**: la condizione si valuta DOPO la fase 5b (fee già bruciate): `saldo ≥ amount + FEE_TX`, cioè *dopo lo stake resta almeno una FEE_TX liquida*. Equivalente pre-fee: `saldo ≥ tx_fee + amount + FEE_TX`.
+**The single residue**: with a whole reserve, accumulator dust no longer exists. What remains
+is the **rounding residue** `staking_reserved − Σ pending ≥ 0`: the fractions that user-side
+flooring leaves in the reserve. It is a protocol liability — not attributable without O(N)
+work, hence neither burned nor gifted: it stays there, declared, and with the current design
+it has the right sign.
 
-Solo `NATIVE_TOKEN` è stakeabile. Nessun unbonding. Lo stake non è spendibile né trasferibile finché in stake. Lo staking è l'unico modo di partecipare all'emissione: è il "mining" della chain.
+**Mandatory pre-genesis gate**: a consensus-grade property test — millions of random
+emission/stake/unstake/claim sequences with arbitrary distributions and extreme `PRECISION`
+values, checking **after every single operation**:
+
+1. the monetary invariant (exact equality; the staking gate exercises it without pools, and
+   the differential scenarios of §10 exercise it with them);
+2. total conservation at every settle;
+3. **`staking_reserved ≥ Σ pending ≥ 0`** — assertion (3) is the one an earlier gate lacked,
+   and the one that would have caught the earlier underflow bug.
+
+Only `NATIVE_TOKEN` is stakeable. There is no unbonding. Stake is neither spendable nor
+transferable while staked. Staking is the only way to take part in emission: it is the chain's
+"mining".
 
 ---
 
-## 9. API del nodo
+## 9. Node API
 
-### 9.1 Endpoint
-| Metodo | Path | Funzione |
+### 9.1 Endpoints
+
+| Method | Path | Function |
 |---|---|---|
-| `POST` | `/tx` | Submit `{blob: base64, target_round: u64}` → ricevuta firmata |
-| `GET` | `/head` | Header ultimo blocco |
-| `GET` | `/block/{height}` | Blocco completo (Borsh base64 + JSON) |
-| `GET` | `/account/{id}` | Stato account |
-| `GET` | `/pair/{id}` | Riserve, fee_bps, lp_supply |
-| `GET` | `/tokens`, `/pairs` | Elenchi (pair raggruppate per coppia, tutti i tier) |
-| `GET` | `/supply` | GENESIS, emitted, burned, circolante, staked |
-| `GET` | `/topic/{topic}?from={h}` | Publish di un topic (indice di convenienza sui blocchi, non stato) |
-| `GET` | `/blob/{hash}` | Blob cifrato manifestato (audit della contabilità §5.1; anche su mirror) |
-| `GET` | `/chain/export?from={h}` | Stream blocchi per replay |
-| `GET` | `/params` | Parametri + chain-info drand + pubkey nodo + pubkey foundation |
-| `WS` | `/stream` | Push blocchi |
+| `POST` | `/tx` | Submit `{blob: base64, target_round: u64}` → signed receipt |
+| `GET` | `/head` | Latest block header |
+| `GET` | `/block/{height}` | Full block (Borsh base64 + JSON) |
+| `GET` | `/account/{id}` | Account state |
+| `GET` | `/pair/{id}` | Reserves, fee_bps, lp_supply |
+| `GET` | `/tokens`, `/pairs` | Listings (pairs grouped by token couple, all tiers) |
+| `GET` | `/supply` | GENESIS, emitted, burned, and **all five buckets of §5.5** with their total, so the monetary invariant can be checked from this endpoint alone |
+| `GET` | `/topic/{topic}?from={h}` | Publishes on a topic (a convenience index over blocks, not state) |
+| `GET` | `/blob/{hash}` | Manifested encrypted blob (accounting audit §5.1; also on the mirror) |
+| `GET` | `/chain/export?from={h}` | Block stream for replay |
+| `GET` | `/params` | Parameters + drand chain-info + node pubkey + foundation pubkey |
+| `WS` | `/stream` | Block push |
+| `GET` | `/`, `/app.js`, `/app.css`, `/logo.jpg` | The explorer and wallet of §3.2, compiled into the binary. Not consensus (§13.3): `--no-web` removes these four and nothing a verifier needs |
 
-### 9.2 Ricevuta di sottoscrizione firmata + collection commitment
-Risposta a `POST /tx`: la **ricevuta canonica definita sotto** (v0.9.1: `Ed25519(node_key, blake3(borsh(ReceiptPayload)))` — UNICO preimage normativo; qualsiasi concatenazione informale è un'implementazione errata). Con il commitment v0.8.2 la catena di responsabilità diventa a due firme:
-- **ricevuta emessa, hash assente dal `blob_manifest`** → due firme dello stesso nodo che si contraddicono: **censura provata dal blocco stesso**, senza bisogno di replay;
-- **hash nel manifest** → deve risolversi in `txs`/`rejected`/`unusable` (contabilità §5.1); un claim `unusable` falso è smentibile da chiunque con blob + beacon; il rifiuto di servire un blob manifestato (`GET /blob/{hash}`) è ostruzione visibile.
+### 9.2 Signed submission receipt + collection commitment
 
-**Ricevuta canonica (v0.9.1)**: la ricevuta firma `receipt_hash = blake3(borsh(ReceiptPayload{ domain: "popcorn-receipt-v1", blob_hash, target_round, timestamp_ms }))` — wire-canonical, riproducibile in qualsiasi linguaggio. Il `timestamp_ms` è dichiarato dal nodo, **non-consensus**: mai usato per ordinamento, validità o come prova crittografica di orario (§13).
+The response to `POST /tx` is the **canonical receipt defined below**:
+`Ed25519(node_key, blake3(borsh(ReceiptPayload)))` — the ONLY normative preimage; any informal
+concatenation is an incorrect implementation.
 
-**Protocollo di partecipazione (policy CLIENT, non consenso — v0.9.1)**: se la ricevuta per un blob verso `R` arriva **prima della deadline** che il client si è fissato (≤ `T(R) − ε`), il blob è da considerarsi protetto per `R`; altrimenti il client NON deve fare affidamento sull'inclusione in `R` e può ricifrare verso un round successivo. Il consenso conosce solo blob/round/ricevuta/manifest: la reazione al mancato rilascio della ricevuta è interamente del client.
+```rust
+struct ReceiptPayload {
+    domain: "popcorn-receipt-v1",
+    blob_hash: [u8; 32],
+    target_round: u64,
+    timestamp_ms: u64,   // node-declared, NON-CONSENSUS
+}
 
-**Il limite, senza ambiguità**: ricevuta prima della deadline → prova forte di omissione se il blob non appare; nessuna ricevuta → il client può *dire* di aver inviato, ma non ha prova crittografica. POPCORN fornisce accountability forte per i blob ricevutati, non una prova universale della ricezione di ogni pacchetto.
+receipt_hash = blake3(borsh(ReceiptPayload))
+```
 
-Residuo dichiarato: il **rifiuto cieco all'ingresso** (il nodo non emette la ricevuta) — cieco per costruzione del tlock: il nodo non sa cosa sta rifiutando. Nota DoS (fuori consenso): blob spazzatura non pagano fee; il tetto di ammissione è `MAX_TX_PER_BATCH` più rate-limiting wire-level per IP — superficie accettata e dichiarata.
+`timestamp_ms` is declared by the node and is **non-consensus**: never used for ordering,
+validity, or as cryptographic proof of time (§13).
+
+With the collection commitment, the chain of responsibility becomes two-signature:
+
+- **receipt issued, hash absent from `blob_manifest`** → two signatures by the same node
+  contradicting each other: **censorship proven by the block itself**, no replay needed;
+- **hash in the manifest** → it must resolve into `txs` / `rejected` / `unusable` (§5.1
+  accounting); a false `unusable` claim is refutable by anyone holding blob + beacon, and
+  refusing to serve a manifested blob (`GET /blob/{hash}`) is visible obstruction.
+
+**Participation protocol (client policy, not consensus)**: if the receipt for a blob toward
+`R` arrives **before the deadline the client set itself** (≤ `T(R) − ε`), the blob is to be
+considered protected for `R`; otherwise the client MUST NOT rely on inclusion in `R` and may
+re-encrypt toward a later round. Consensus knows only blobs, rounds, receipts and manifests:
+reacting to a missing receipt is entirely the client's business.
+
+**The limit, stated plainly**: receipt before the deadline → strong proof of omission if the
+blob never appears; no receipt → the client can *claim* it sent something, but holds no
+cryptographic proof.
+
+Declared residue: **blind refusal at ingress** (the node issues no receipt) — blind by
+construction of the timelock, since the node does not know what it is refusing.
+
+DoS note (outside consensus): junk blobs pay no fee; the admission ceiling is
+`MAX_TX_PER_BATCH` plus wire-level per-IP rate limiting — an accepted, declared surface.
 
 ---
 
-## 10. Verifica di terze parti
+## 10. Third-party verification
 
-Verificatore indipendente (stesso binario, `--verify`):
-1. Scarica `/chain/export` (o il mirror).
-2. Per blocco: `node_signature` su `block_hash`, `prev_hash`, firma drand del round contro chain-info pubblica quicknet, coerenza `drand_sig_hash`, **ricalcolo di shuffle + normalizzazione (§3, §5.3)**, ricalcolo di `txs_root`/`rejected_root`/`results_root`, **coerenza del collection commitment**: `collection_root` = blake3 del `blob_manifest` ordinato, `unusable ⊆ manifest`, e (con i blob dal mirror) contabilità completa manifest → txs/rejected/unusable, ridecifrando col beacon.
-3. Replay da genesis: confronto di ogni `state_root` (§5.4), **verifica della formula di emissione** e dell'**invariante monetario** a ogni blocco.
+An independent verifier (the same binary, `--verify`):
 
-Qualsiasi divergenza = prova crittografica di scorrettezza. **La specifica definisce le semantiche normative; le implementazioni delle primitive esterne (Ed25519, Borsh, age/tlock, U256) sono accettate solo nella versione/profilo congelato in §13 e devono superare i test vector consensus-grade** — è questo, non la purezza degli algoritmi, a rendere la verifica riproducibile in qualsiasi linguaggio.
+1. Downloads `/chain/export` (or the mirror).
+2. Per block, checks: `node_signature` over `block_hash`; `prev_hash`; the round's drand
+   signature against the public quicknet chain-info; `drand_sig_hash` coherence; a
+   **recomputation of shuffle + normalization** (§3.7, §5.3); recomputation of
+   `txs_root` / `rejected_root` / `results_root`; and **collection commitment coherence**:
+   `collection_root` = blake3 over the sorted `blob_manifest`, `unusable ⊆ manifest`, and —
+   with blobs from the mirror — the complete manifest → txs/rejected/unusable accounting,
+   re-decrypting with the beacon.
+3. Replays from genesis: compares every `state_root` (§5.4), **verifies the emission formula**
+   and the **monetary invariant** at every block.
 
-**Test vector consensus-grade (obbligo v0.9)**: il repo mantiene fixture byte-per-byte end-to-end — tx firmata → blob age/tlock → beacon reale → batch ordinato → stato risultante → `state_root` → ricevuta — riproducibili da un implementatore indipendente. Accanto al verificatore, un **reference executor minimale e indipendente** (AMM, fee, reward, shuffle, serializzazione dello state root) fa da doppio differenziale: due implementazioni della stessa spec che divergono = bug di spec o di codice, trovato prima del genesis.
+Any divergence is cryptographic proof of incorrectness.
 
-**Due proprietà distinte (v0.9.1)**: il **replay dello stato** è self-contained (SignedTx + root + genesis → state_root, basta `/chain/export`); l'**audit della collection** (manifest → tx/rejected/unusable) NON lo è: richiede i blob (dal nodo o dal mirror) e il beacon. Sono garanzie diverse e vanno citate separatamente.
+**The specification defines normative semantics; implementations of external primitives
+(Ed25519, Borsh, age/tlock, U256) are accepted only in the version and profile frozen in
+§13** and must pass the consensus-grade test vectors — that, not algorithmic purity, is what
+makes verification reproducible in any language.
 
-**Perimetro del replay (congelato)**: il replay parte dai `SignedTx` **in chiaro** contenuti nei blocchi — i blob cifrati non vivono nel blocco. Le firme utente rendono le tx non falsificabili dal nodo (può omettere, non inventare). La proprietà "il nodo non vedeva le tx prima del round" è garantita dalla cifratura lato client e dal pinning tlock, e **non è ri-verificabile nel replay**: è l'unica proprietà del sistema che poggia sul comportamento dei client, non sui blocchi. Il mirror dei blob cifrati originali è **obbligo operativo dell'operatore** (fuori consenso, v0.9.3): senza di esso l'audit della collection (§9.2, derivazione di `unusable`) non è praticabile da terzi — un operatore che non pubblica i blob manifestati sta ostruendo l'audit, visibilmente.
+**Consensus-grade test vectors (mandatory)**: the repository maintains byte-for-byte
+end-to-end fixtures — signed tx → age/tlock blob → real beacon → ordered batch → resulting
+state → `state_root` → receipt — reproducible by an independent implementer. Alongside the
+verifier, a **minimal independent reference executor** (AMM, fees, rewards, shuffle, state
+root serialization) acts as a differential: two implementations of the same spec that diverge
+mean a spec bug or a code bug, found before genesis.
+
+**Two distinct properties.** **State replay** is self-contained (SignedTx + roots + genesis →
+state_root; `/chain/export` suffices). The **collection audit** (manifest → tx/rejected/
+unusable) is NOT: it needs the blobs (from the node or the mirror) and the beacon. These are
+different guarantees and must be cited separately.
+
+**Replay perimeter (frozen)**: replay starts from the **cleartext** `SignedTx` contained in
+blocks — encrypted blobs do not live in the block. User signatures make transactions
+unforgeable by the node (it can omit, it cannot invent). The property "the node did not see
+the transactions before the round" is guaranteed by client-side encryption and tlock pinning,
+and is **not re-verifiable under replay**: it is the only property of the system resting on
+client behaviour rather than on blocks.
+
+**Blob mirroring is an operational requirement of the operator** (outside consensus): without
+it the collection audit (§9.2, the derivation of `unusable`) is not practicable by third
+parties — an operator who does not publish manifested blobs is obstructing the audit,
+visibly.
 
 ---
 
-## 11. Parametri di protocollo (genesis)
+## 11. Protocol parameters
 
-| Parametro | Valore proposto | Note |
+| Parameter | Proposed value | Notes |
 |---|---|---|
-| `BATCH_PERIOD` | 1 round quicknet (3 s) | allineato al beacon |
-| `MAX_TX_PER_ACCOUNT_PER_BATCH` | 8 | budget anti-spam |
-| `MAX_TX_PER_BATCH` | 10 000 | tetto risorse |
-| `MAX_PATH_LEN` | 4 | hop massimi |
-| `FEE_TIERS` | {5, 30, 100} bps | unici ammessi |
-| `MAX_SUPPLY` | 10³⁰ | tetto supply per token utente |
-| `GENESIS_SUPPLY` | 0 | **fair launch**: nessuna allocazione al genesis |
-| `EMISSION_0` | 1 × 10⁹ | 1 nativo/batch iniziale (≈ 28 800/giorno) |
-| `HALVING_INTERVAL` | 10 512 000 batch | ≈ 1 anno a 3 s/batch |
-| `EMISSION_STAKER_BPS` | 8 500 | 85% staker / 15% foundation |
-| → supply massima | ≈ 21,02 M | limite superiore; l'effettiva è minore (batch senza staker: quota staker mai nata) |
-| `FEE_TX` | 5 000 | 0,000005 nativi (come i 5 000 lamport di Solana), piatta, bruciata |
-| `MAX_PUBLISH_SIZE` | 512 B | payload massimo di `Publish` |
-| `PUBLISH_FREE_BYTES` | 128 B | soglia inclusa nella fee piatta |
-| `PUBLISH_BYTE_FEE` | 50 | unità per byte oltre soglia (512 B ≈ 0,0000242 nativi) |
-| `SIGN_DOMAIN` | "popcorn-v1" | dominio di firma, 10 byte ASCII |
-| `MINIMUM_LIQUIDITY` | 1 000 | bruciata al primo mint |
-| `PRECISION` | 10¹⁸ | accumulatore staking |
-| `MAX_BLOB_SIZE` | 2 KiB | payload cifrato |
-| `HTLC_MAX_LIFETIME_ROUNDS` | 864 000 | ≈ 30 giorni: vita massima di un lock (§7.6) |
-| `BLOB_ROUND_HORIZON` | 200 | ≈ 10 min: il nodo accetta blob solo per round vicini (§3 v0.9) |
-| `CONSENSUS_VERSION` | 0x0000_0009_0002 | versione normativa del consenso (§13) |
-| `GENESIS_DRAND_ROUND` | fissato al genesis | mapping normativo `round(h) = G + h − 1` (§3 v0.9.1) |
-| `DRAND_REMOTES` | api.drand.sh, drand.cloudflare.com | stesso chain-hash, fallback in ordine |
+| `BATCH_PERIOD` | 1 quicknet round (3 s) | aligned with the beacon |
+| `MAX_TX_PER_ACCOUNT_PER_BATCH` | 8 | anti-spam budget |
+| `MAX_TX_PER_BATCH` | 10 000 | resource ceiling |
+| `MAX_PATH_LEN` | 4 | maximum hops |
+| `FEE_TIERS` | {5, 30, 100} bps | the only admitted tiers |
+| `MAX_SUPPLY` | 10³⁰ | supply ceiling per user token |
+| `GENESIS_SUPPLY` | 0 | **fair launch**: no genesis allocation |
+| `EMISSION_0` | 1 × 10⁹ | 1 native/batch initially (≈ 28,800/day) |
+| `HALVING_INTERVAL` | 10 512 000 batches | ≈ 1 year at 3 s/batch |
+| `EMISSION_STAKER_BPS` | 8 500 | 85% stakers / 15% foundation |
+| → maximum supply | ≈ 21.02 M | upper bound; the effective figure is lower (staker-less batches: that staker share is never born) |
+| `FEE_TX` | 5 000 | 0.000005 native (like Solana's 5,000 lamports), flat, burned |
+| `MAX_PUBLISH_SIZE` | 512 B | maximum `Publish` payload |
+| `PUBLISH_FREE_BYTES` | 128 B | threshold included in the flat fee |
+| `PUBLISH_BYTE_FEE` | 50 | units per byte above the threshold (512 B ≈ 0.0000242 native) |
+| `SIGN_DOMAIN` | `"popcorn-v1"` | signing domain, 10 ASCII bytes |
+| `MINIMUM_LIQUIDITY` | 1 000 | burned at first mint |
+| `PRECISION` | 10¹⁸ | staking accumulator |
+| `MAX_BLOB_SIZE` | 2 KiB | encrypted payload |
+| `HTLC_MAX_LIFETIME_ROUNDS` | 864 000 | ≈ 30 days: maximum lock lifetime (§7.6) |
+| `BLOB_ROUND_HORIZON` | 200 | ≈ 10 min: the node accepts blobs only for nearby rounds (§3.5) |
+| `CONSENSUS_VERSION` | `0x0000_0009_0002` | normative consensus version (§13) |
+| `GENESIS_DRAND_ROUND` | fixed at genesis | normative mapping `round(h) = G + h − 1` (§3.4) |
+| `DRAND_REMOTES` | api.drand.sh, drand.cloudflare.com | same chain hash, fallback in order |
 
-**Requisiti operativi (fuori consenso, congelati come obbligo v0.8.4)** — la fase di raccolta è cieca (nessuna fee prima della decifratura: il signer non è noto), quindi l'availability del nodo va difesa a livello wire, senza toccare il protocollo: `MAX_TOTAL_INGRESS_PER_ROUND` (tetto byte accettati per round, ≥ MAX_TX_PER_BATCH × MAX_BLOB_SIZE), `MAX_BLOBS_PER_CONNECTION`, `MAX_BYTES_PER_IP_WINDOW`, `MAX_TLOCK_DECRYPT_WORK_PER_ROUND` (budget CPU con degradazione dichiarata: la chain ritarda, mai salta blob manifestati). **Benchmark worst-case obbligatorio pre-genesis**: 10k ciphertext validi, 10k ciphertext tlock invalidi, 10k blob garbage — il caso peggiore per CPU può non essere quello ovvio. Questo è un rischio di *availability del nodo*, non di correttezza del ledger: dichiarato e separato.
+**Operational requirements (outside consensus, frozen as an obligation)** — the collection
+phase is blind (no fee before decryption: the signer is unknown), so node availability must be
+defended at the wire level without touching the protocol:
 
-I valori monetari (GENESIS, EMISSION_0, HALVING, split) sono proposte calibrabili prima del genesis; dopo il genesis sono **immutabili**.
+- `MAX_TOTAL_INGRESS_PER_ROUND` (byte ceiling accepted per round, ≥ `MAX_TX_PER_BATCH` ×
+  `MAX_BLOB_SIZE`)
+- `MAX_BLOBS_PER_CONNECTION`
+- `MAX_BYTES_PER_IP_WINDOW`
+- `MAX_TLOCK_DECRYPT_WORK_PER_ROUND` (CPU budget with declared degradation: the chain waits,
+  it never skips manifested blobs)
+
+**Mandatory pre-genesis worst-case benchmark — measured (v0.9.3-en).** The suspicion this
+paragraph used to record ("the CPU worst case may not be the obvious one") was correct, and
+the direction is the uncomfortable one. Measured with
+`popcorn-timelock/examples/dos_benchmark.rs`, 10,000 blobs per population, one core of a
+2.8 GHz Xeon:
+
+| Population | Per blob | One round of 10,000 |
+|---|---|---|
+| Garbage | ~0 ms | **0.1%** of a round |
+| Corrupt tlock stanza | 0.08 ms | 26% |
+| Headers padded to the 1 KiB profile limit | 0.70 ms | 235% |
+| Valid ciphertexts | 2.52 ms | 839% |
+| Corrupt payload (tlock unwraps, AEAD fails) | 2.51 ms | 837% |
+| Decrypts but does not decode | 2.55 ms | **850%** |
+
+Garbage is free to refuse — the profile rejects it on the first bytes. What costs is anything
+**well-formed enough to reach the timelock unwrap**, because the pairing work happens before
+the AEAD or the decoder can object.
+
+Two consequences, both declared rather than buried:
+
+1. **`MAX_TX_PER_BATCH = 10_000` is not reachable at 3 s per round on one core.** A full batch
+   of the worst population takes 25.5 s, i.e. 8.5 round-times. Decryption parallelises cleanly
+   (the derived set does not depend on the order it is computed in, so it is outside consensus
+   under §13.3): across 4 cores the same batch takes 6.4 s, still 2.1 round-times, and roughly
+   **9 cores** are needed to clear 10,000 inside one round. An operator either provisions for
+   that, or sets `MAX_TLOCK_DECRYPT_WORK_PER_ROUND` to a ceiling they can actually meet. The
+   declared degradation then applies: the chain **waits**, and never skips a manifested blob.
+2. **The attacker's cost is not the node's cost.** A blob with a corrupt payload costs the node
+   2.51 ms — the same as an honest one — and costs its sender nothing: no fee, no valid
+   signature, no key, no account. That asymmetry is the attack, and it is why the defences of
+   this section are wire-level admission limits rather than anything the protocol can charge
+   for.
+
+This is a *node availability* risk, not a ledger correctness risk: declared and kept separate.
+
+Monetary values (GENESIS, EMISSION_0, HALVING, split) are proposals, tunable before genesis;
+after genesis they are **immutable**.
 
 ---
 
-## 12. Fuori scope dichiarato
+## 12. Declared out of scope
 
-- Nessuna VM / codice utente (porta aperta: `Action` estendibile).
-- Nessuna concentrated liquidity, hooks, limit order nativi, flash loan, TWAP on-chain.
-- Nessun consenso, P2P, resistenza alla censura hard.
-- Nessun oracolo oltre drand. **Nessun bridge di protocollo**: POPCORN non custodisce né verifica asset esterni. Gli HTLC (§7.6) sono la primitiva con cui gli utenti costruiscono swap atomici cross-chain per conto proprio; qualsiasi bridge custodial è attività di terzi, off-chain e fuori protocollo, con le relative responsabilità in capo a chi lo organizza.
-
+- No VM, no user code (door left open: `Action` is extensible).
+- No concentrated liquidity, hooks, native limit orders, flash loans, or on-chain TWAP.
+- No consensus, no P2P, no hard censorship resistance.
+- No oracle beyond drand. **No protocol bridge**: POPCORN neither custodies nor verifies
+  external assets. HTLCs (§7.6) are the primitive users build their own atomic cross-chain
+  swaps with; any custodial bridge is third-party activity, off-chain and outside the
+  protocol, with the corresponding responsibilities on whoever runs it.
 
 ---
 
-## 13. POPCORN-CONSENSUS — definizione normativa del consenso (v0.9)
+## 13. POPCORN-CONSENSUS — normative definition
 
-Il determinismo di POPCORN è **normativo, non emergente**: la chain non è deterministica "perché Rust+Borsh+blake3 lo sono", ma perché questo documento definisce esplicitamente ogni semantica che può influenzare lo state root. `Cargo.lock` non è una specifica di consenso: lo è questa tabella.
+POPCORN's determinism is **normative, not emergent**: the chain is not deterministic "because
+Rust + Borsh + blake3 are", but because this document explicitly defines every semantics that
+can influence the state root. `Cargo.lock` is not a consensus specification; this table is.
 
-`CONSENSUS_VERSION = 0x0000_0009_0002` (impressa nel genesis e in `/params`; forma a tre campi 16-bit `0x{riservato}_{minor}_{patch}`: qui minor=9, patch=2 — il patch level segue le revisioni della spec, il freeze fissa il valore definitivo).
+`CONSENSUS_VERSION = 0x0000_0009_0002`, stamped into genesis and `/params`. The form is three
+16-bit fields, `0x{reserved}_{minor}_{patch}`: here minor = 9, patch = 2. The patch level
+tracks spec revisions; the freeze fixes the definitive value.
 
-| Componente | Definizione normativa |
+| Component | Normative definition |
 |---|---|
-| Hash | BLAKE3-256 (e XOF per lo shuffle); SHA-256 SOLO per gli hashlock HTLC (§7.6) |
-| Serializzazione | Borsh, versione ESATTA in CONSENSUS-LOCK (crate + derive + feature; decodifica delle collection con ordine strettamente crescente obbligatorio — feature `de_strict_order` o check equivalente); solo strutture canoniche (§2) |
-| Firma | Ed25519, `ed25519-dalek` versione pinnata, semantica `verify_strict` (§3) |
-| Interi | u128 con intermedie U256 (`primitive-types` pinnata); overflow ⇒ `Failed` deterministico, mai panic |
-| Ordinamento | sort per tx_id → Fisher-Yates su BLAKE3-XOF(sig‖LE64(height)) con rejection sampling definito (§3) → normalizzazione nonce (§5.3) |
-| AMM | POPCORN-V2-MATH (§6): formule, arrotondamenti e lifecycle come scritti, floor ovunque, rounding a favore del pool |
-| Fee | `tx_fee` canonica (§5.2), fase unica 5b, burn totale |
-| Emissione/reward | §7.2 (indice 0-based, regola no-staker) + §8 (accumulatore, riserva) |
-| Timelock | schema tlock su drand quicknet, `DRAND_SCHEME` e `DRAND_CHAIN_HASH` pinnati, formato blob age, policy beacon (§3) — dietro `TimelockProvider`, sostituibile |
-| State commitment | hash sequenziale BLAKE3 per tabelle taggate (§5.4) |
+| Hash | BLAKE3-256 (plus XOF for the shuffle); SHA-256 ONLY for HTLC hashlocks (§7.6) |
+| Serialization | Borsh, EXACT version in CONSENSUS-LOCK (crate + derive + features; collection decoding with strictly increasing order mandatory — the `de_strict_order` feature or an equivalent check); canonical structures only (§2.3) |
+| Signature | Ed25519, `ed25519-dalek` pinned version, `verify_strict` semantics (§3.1) |
+| Integers | u128 with U256 intermediates (`primitive-types` pinned); overflow ⇒ deterministic `Failed`, never a panic |
+| Ordering | sort by tx_id → Fisher-Yates over BLAKE3-XOF(sig ‖ LE64(height)) with the defined rejection sampling (§3.7) → nonce normalization (§5.3) |
+| AMM | POPCORN-V2-MATH (§6): formulas, rounding and lifecycle exactly as written, floor everywhere, rounding in favour of the pool |
+| Fees | canonical `tx_fee` (§5.2), single phase, total burn |
+| Emission / rewards | §7.2 (0-based index, no-staker rule) + §8 (accumulator, reserve) |
+| Timelock | tlock over drand quicknet, `DRAND_SCHEME` and `DRAND_CHAIN_HASH` pinned, age blob format, beacon policy (§3.3) — behind `TimelockProvider`, substitutable |
+| State commitment | sequential BLAKE3 hash over tagged tables (§5.4) |
 
-**CONSENSUS-LOCK (annex del genesis, v0.9.1)**: al freeze si registra la versione ESATTA (crate, derive, feature flags, commit per i vendorizzati) di: `borsh`+`borsh-derive`, `ed25519-dalek`, `primitive-types`, `blake3`, `sha2`, `age`, `tlock`, `tlock_age`, `drand_core`. "Versione pinnata" senza numero è contrario a questa stessa sezione: i numeri vivono nell'annex, impresso nel genesis accanto a `CONSENSUS_VERSION`.
+**CONSENSUS-LOCK (genesis annex).** At freeze time, the EXACT version (crate, derive, feature
+flags, commit for vendored code) of each of `borsh` + `borsh-derive`, `ed25519-dalek`,
+`primitive-types`, `blake3`, `sha2`, `age`, `tlock`, `tlock_age`, `drand_core` is recorded.
+"Pinned version" without a number contradicts this very section: the numbers live in the
+annex, stamped into genesis next to `CONSENSUS_VERSION`.
 
-**Discriminanti normativi (v0.9.1)** — i valori Borsh degli enum di consenso sono tabellati; aggiungere/rimuovere/riordinare varianti è consensus-breaking (i `results_root`/`rejected_root` dipendono dai discriminanti):
-`RejectReason`: 0 Malformed, 1 BadSignature, 2 WrongRound, 3 UnknownAccount, 4 PubkeyMismatch, 5 FieldOutOfRange, 6 DuplicateNonce, 7 NonceGap, 8 OverBudget, 9 FeeInsolvent, 10 NonceExhausted.
-`FailReason`: 0 InsufficientBalance, 1 SlippageExceeded, 2 UnknownToken, 3 UnknownPair, 4 PairAlreadyExists, 5 LpTokenAsPairSide, 6 ZeroOutput, 7 LiquidityTooSmall, 8 ReGenesisGuard, 9 BadPath, 10 StakeLiquidityGuard, 11 Overflow, 12 SupplyOutOfRange (riservato: unreachable — la statica intercetta prima con FieldOutOfRange), 13 SelfTransferNoop, 14 HtlcNotFound, 15 HtlcBadPreimage, 16 HtlcExpired, 17 HtlcNotExpired, 18 HtlcDuplicateHashlock.
-`ExecStatus`: 0 Ok, 1 Failed(FailReason). `Action`: i discriminanti seguono l'ordine di §4.3, tabellati nell'annex.
+### 13.1 Normative discriminants
 
-**Overflow per-caso (v0.9.1)** — "overflow ⇒ Failed" è troppo generico; semantica congelata: intermedie U256 in AMM/staking che sforano al rientro in u128 ⇒ `Failed(Overflow)`; `supply` fuori range ⇒ statica (`FieldOutOfRange`); `account.nonce == u64::MAX` ⇒ account **terminale**: ogni sua tx ⇒ `rejected: NonceExhausted` (mai un incremento che wrappa); `native_emitted`/`native_burned`/`acc_per_stake`/`staking_reserved` sono bounded dalla supply finita (§8) e un loro overflow è irraggiungibile per costruzione — un implementatore li tratta comunque con aritmetica checked e un overflow lì è un bug fatale (halt), mai un wrap silenzioso.
+Borsh discriminant values for consensus enums are tabulated. Adding, removing or reordering
+variants is consensus-breaking (`results_root` and `rejected_root` depend on discriminants).
 
-**Cambiamenti NON consensus-breaking** (liberi): implementazione HTTP/WS, logging, metriche, compaction del database, RPC, CLI, mirror, rate-limiting wire-level.
+**`RejectReason`**
 
-**Cambiamenti consensus-breaking** (richiedono nuovo `CONSENSUS_VERSION` e, post-genesis, sono di fatto una nuova chain): semantica di verifica delle firme, serializzazione, algoritmi di hash, ordine di attraversamento dello stato, arrotondamenti AMM, calcolo delle fee, formule di emissione/reward, algoritmo di shuffle, mapping round→blocco, policy del beacon. **Nessun aggiornamento di dipendenza crittografica entra nel consenso automaticamente**: l'upgrade di una versione pinnata in questa tabella è un cambio di consenso dichiarato, mai un side-effect di `cargo update`.
+| # | Variant | # | Variant |
+|---|---|---|---|
+| 0 | `Malformed` | 6 | `DuplicateNonce` |
+| 1 | `BadSignature` | 7 | `NonceGap` |
+| 2 | `WrongRound` | 8 | `OverBudget` |
+| 3 | `UnknownAccount` | 9 | `FeeInsolvent` |
+| 4 | `PubkeyMismatch` | 10 | `NonceExhausted` |
+| 5 | `FieldOutOfRange` | | |
 
-**Nota drand (rischio dichiarato)**: la rete drand è operativa (release 2.1.x nel 2026) ma è infrastruttura esterna la cui continuità non è sotto il controllo di POPCORN — lo steward Randamu è stato chiuso a febbraio 2026. Mitigazioni: orizzonte timelock breve (§3), `TimelockProvider` sostituibile, e il precedente fastnet come promemoria che un sunset impatta l'availability, non i fondi (nessun ciphertext a lungo termine esiste per costruzione).
+**`FailReason`**
 
-**Roadmap dichiarata post-freeze (P3, non sicurezza)**: migrazione `primitive-types` → `alloy-primitives`/`ruint` SOLO dopo il freeze, con test differenziali byte-per-byte contro l'implementazione corrente — cambiare l'aritmetica di un consensus engine funzionante è un rischio, non un fix.
+| # | Variant | # | Variant |
+|---|---|---|---|
+| 0 | `InsufficientBalance` | 10 | `StakeLiquidityGuard` |
+| 1 | `SlippageExceeded` | 11 | `Overflow` |
+| 2 | `UnknownToken` | 12 | `SupplyOutOfRange` *(reserved: unreachable — static validation catches it first with `FieldOutOfRange`)* |
+| 3 | `UnknownPair` | 13 | `SelfTransferNoop` |
+| 4 | `PairAlreadyExists` | 14 | `HtlcNotFound` |
+| 5 | `LpTokenAsPairSide` | 15 | `HtlcBadPreimage` |
+| 6 | `ZeroOutput` | 16 | `HtlcExpired` |
+| 7 | `LiquidityTooSmall` | 17 | `HtlcNotExpired` |
+| 8 | `ReGenesisGuard` | 18 | `HtlcDuplicateHashlock` |
+| 9 | `BadPath` | | |
+
+`ExecStatus`: 0 `Ok`, 1 `Failed(FailReason)`. `Action`: discriminants follow the order in
+§4.3, tabulated in the annex.
+
+### 13.2 Per-case overflow
+
+"Overflow ⇒ Failed" is too generic; the frozen semantics are:
+
+- U256 intermediates in AMM/staking that do not fit on the way back to `u128` ⇒
+  `Failed(Overflow)`;
+- `supply` out of range ⇒ static validation (`FieldOutOfRange`);
+- `account.nonce == u64::MAX` ⇒ the account is **terminal**: every transaction of its own
+  ⇒ `rejected: NonceExhausted` (never a wrapping increment);
+- `native_emitted`, `native_burned`, `acc_per_stake` and `staking_reserved` are bounded by
+  finite supply (§8) and overflowing them is unreachable by construction — an implementer
+  still treats them with checked arithmetic, and an overflow there is a fatal bug (halt),
+  never a silent wrap.
+
+### 13.3 Change classification
+
+**NOT consensus-breaking** (free): HTTP/WS implementation, logging, metrics, database
+compaction, RPC, CLI, mirroring, wire-level rate limiting.
+
+**Consensus-breaking** (require a new `CONSENSUS_VERSION` and, post-genesis, are effectively a
+new chain): signature verification semantics, serialization, hash algorithms, state traversal
+order, AMM rounding, fee computation, emission/reward formulas, the shuffle algorithm, the
+round→block mapping, beacon policy.
+
+**No cryptographic dependency upgrade enters consensus automatically**: upgrading a pinned
+version in this table is a declared consensus change, never a side effect of `cargo update`.
+
+### 13.4 Declared risks and roadmap
+
+**drand**: the network is operational but is external infrastructure whose continuity is not
+under POPCORN's control. Mitigations: the short timelock horizon (§3.5), a substitutable
+`TimelockProvider`, and the fastnet precedent as a reminder that a sunset affects availability,
+not funds (no long-term ciphertext exists, by construction).
+
+**Post-freeze roadmap (P3, not security)**: migrating `primitive-types` →
+`alloy-primitives`/`ruint` ONLY after the freeze, with byte-for-byte differential tests against
+the current implementation — changing the arithmetic of a working consensus engine is a risk,
+not a fix.
+
+---
+
+## 14. Implementation clarifications
+
+Points the frozen text left implicit and the reference implementation had to decide. They are
+**consensus rules** (they affect the state root or an execution outcome) and are pinned here
+rather than left to the implementer.
+
+1. **Zero-balance canonicalization.** A `balances` entry reaching `0` is **removed** from the
+   map; a zero-amount entry is never written. Without this, two logically identical states
+   would produce different `state_root`s. Accounts themselves are never removed once created —
+   the nonce must survive.
+2. **Evaluation point of the `Stake` liquidity guard.** The guard is evaluated **after** the
+   pending settlement of step 1 in §8, over the balance that includes the credited `pending`.
+   This matches the guard's stated purpose ("at least one `FEE_TX` stays liquid after the
+   stake"), since the payout lands in the same action. On failure the whole transaction rolls
+   back, settlement included.
+3. **Identifier collisions are unreachable, not handled.** `TokenId` and `HtlcId` derive from
+   `(account, nonce)`, and a nonce executes at most once for an account, so a collision cannot
+   occur. An implementation MUST NOT silently overwrite the existing record: it returns
+   `Failed(Overflow)` as a defensive catch-all and flags an internal invariant violation.
+4. **`account_count`** is the cardinality of the accounts table, incremented on the creation of
+   an implicit account (§4.2) and never decremented.
+5. **Ordering of `blob_manifest`, `unusable` and `rejected`.** All three are sorted
+   lexicographically by their 32-byte hash (`tx_id` for `rejected`). `txs` and `results` follow
+   execution order and are index-aligned.
+6. **Hashlock index visibility.** The `hashlock → htlc_id` index is a derived cache (§7.6):
+   never serialized, never in the state root, rebuilt from the `htlcs` table at startup and at
+   replay.
+7. **`CreatePair` check order.** The LP-token check runs **before** the existence check. An LP
+   token has no `Token` record, so checking existence first would report `UnknownToken` for
+   every LP side and leave `LpTokenAsPairSide` unreachable — a dead discriminant in a committed
+   enum.
+8. **`CreatePair` with `token_a == token_b`** ⇒ `Failed(BadPath)`. The condition is a pure field
+   check, but §6 places it at runtime, and `BadPath` is the reason for a structurally
+   impossible route.
+9. **Canonical token-name padding.** The 16 name bytes are printable ASCII followed by zero
+   padding; a printable byte **after** a zero byte is `FieldOutOfRange`. Without this, one
+   visible name would have several encodings and therefore several `TokenId`s.
+10. **Manifest normalization is structural.** A batch executor sorts and deduplicates
+    `blob_manifest` and `unusable` before committing to them, rather than trusting its caller's
+    ordering. `collection_root` is defined over the set in lexicographic order, so a multiset
+    manifest must be unrepresentable, not merely forbidden.
+11. **Half-empty pools.** A pair with exactly one zero reserve has no defined price:
+    `AddLiquidity` against it is `Failed(ReGenesisGuard)`, the same outcome as stranded LP over
+    two zero reserves. It must be drained and restarted through the genesis branch.
+12. **Grease stanzas are tolerated.** See the amendment in §3.6: "exactly one recipient stanza"
+    was unimplementable against the pinned `age` version, which greases every header. The
+    profile now admits one `tlock` stanza plus at most one `-grease` stanza, and refuses every
+    other stanza type.
+13. **Blob decryption needs no network.** Decryption requires only the chain hash and the
+    round's BLS signature, and a block carries its own signature — so the collection audit of
+    §10 runs offline from `/chain/export` plus a blob mirror. Only *producing* a block needs a
+    live beacon.
+14. **JavaScript clients must de-armor.** `tlock-js` emits armored age files; the profile
+    forbids armor. See the note in §3.2: this is a client requirement, not a consensus change,
+    and without it every browser-submitted blob would be `unusable`.
+15. **Implementations disagree on grease, and the profile absorbs it.** Measured, not assumed:
+    the Rust stack writes one `tlock` stanza plus one grease stanza, while drand's Go tlock
+    writes the `tlock` stanza alone. "Exactly one `tlock` stanza, at most one grease" is the
+    only rule that accepts both — which is why §3.6 reads the way it does.

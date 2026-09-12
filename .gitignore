@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+/interop/go/popcorn-interop
+/interop/js/node_modules
+/interop/js/package-lock.json
+/web/node_modules
+# Derived and rebuilt by the gate that uses it; the node embeds only app.js/app.css/index.html/logo.jpg.
+/web/dist/popcorn.mjs

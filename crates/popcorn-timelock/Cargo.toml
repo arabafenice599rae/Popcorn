@@ -1,0 +1,19 @@
+[package]
+name = "popcorn-timelock"
+description = "TimelockProvider: drand beacons and POPCORN-TLOCK-AGE-V1 blobs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+popcorn-core.workspace = true
+blake3.workspace = true
+borsh.workspace = true
+drand_core.workspace = true
+tlock_age.workspace = true
+
+[dev-dependencies]
+ed25519-dalek.workspace = true
+serde_json.workspace = true
+borsh.workspace = true
