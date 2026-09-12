@@ -20,7 +20,7 @@
 | `GET` | `/topic/{topic}?from={h}` | Publishes on a topic — a convenience index over blocks, not state |
 | `GET` | `/blob/{hash}` | **A manifested encrypted blob.** See below |
 | `GET` | `/chain/export?from={h}` | The block stream. This alone re-derives every state root |
-| `GET` | `/params` | Genesis parameters, drand chain info, node and foundation public keys |
+| `GET` | `/params` | Genesis parameters, drand chain info, node and foundation public keys, and the chain's consensus identity |
 | `WS` | `/stream` | Blocks pushed as they are produced |
 | `GET` | `/` · `/app.js` · `/app.css` · `/logo.jpg` | The [explorer and wallet](web.md), compiled into the binary. `--no-web` removes these four — and nothing a verifier needs |
 

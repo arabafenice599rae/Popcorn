@@ -5,7 +5,7 @@
 <h1 align="center">POPCORN — Technical Specification</h1>
 
 <p align="center">
-  <strong>v0.9.3 (freeze candidate)</strong> · pre-genesis · <code>CONSENSUS_VERSION = 0x0000_0009_0002</code>
+  <strong>v0.9.3 (freeze candidate)</strong> · pre-genesis · <code>CONSENSUS_VERSION = 0x0000_0009_0003</code>
 </p>
 
 ---
@@ -678,9 +678,17 @@ for table in [0x01 accounts, 0x02 tokens, 0x03 pairs, 0x04 htlcs, 0x05 global]:
 state_root = h.finalize()
 ```
 
-`global` (field order frozen): `height: u64`, `total_staked: Amount`, `acc_per_stake: u128`,
-`staking_reserved: Amount`, `native_emitted: Amount`, `native_burned: Amount`,
-`account_count: u64`.
+`global` (field order frozen): `consensus_version: u64`, `lock_digest: [u8; 32]`,
+`height: u64`, `total_staked: Amount`, `acc_per_stake: u128`, `staking_reserved: Amount`,
+`native_emitted: Amount`, `native_burned: Amount`, `account_count: u64`.
+
+The first two fields are the chain's **identity** (§13): written once at genesis, never
+touched by any transition. They are inside `global`, and therefore inside every `state_root`,
+so a chain commits to the rules it was created under in every block it produces — and a
+verifier replaying with a different `CONSENSUS_VERSION` or a different pinned dependency list
+diverges at **block 0**, with nothing but the exported blocks in hand. Stamping them in a
+header field or a configuration file would not achieve this: a third party would have to be
+told them, rather than being able to check.
 
 **Encoding of the `global` singleton (frozen)**: table `0x05` contains exactly one pair with
 an empty key:
@@ -1229,7 +1237,7 @@ visibly.
 | `MAX_BLOB_SIZE` | 2 KiB | encrypted payload |
 | `HTLC_MAX_LIFETIME_ROUNDS` | 864 000 | ≈ 30 days: maximum lock lifetime (§7.6) |
 | `BLOB_ROUND_HORIZON` | 200 | ≈ 10 min: the node accepts blobs only for nearby rounds (§3.5) |
-| `CONSENSUS_VERSION` | `0x0000_0009_0002` | normative consensus version (§13) |
+| `CONSENSUS_VERSION` | `0x0000_0009_0003` | normative consensus version, stamped into `global` at genesis (§13) |
 | `GENESIS_DRAND_ROUND` | fixed at genesis | normative mapping `round(h) = G + h − 1` (§3.4) |
 | `DRAND_REMOTES` | api.drand.sh, drand.cloudflare.com | same chain hash, fallback in order |
 
@@ -1303,9 +1311,37 @@ POPCORN's determinism is **normative, not emergent**: the chain is not determini
 Rust + Borsh + blake3 are", but because this document explicitly defines every semantics that
 can influence the state root. `Cargo.lock` is not a consensus specification; this table is.
 
-`CONSENSUS_VERSION = 0x0000_0009_0002`, stamped into genesis and `/params`. The form is three
-16-bit fields, `0x{reserved}_{minor}_{patch}`: here minor = 9, patch = 2. The patch level
-tracks spec revisions; the freeze fixes the definitive value.
+`CONSENSUS_VERSION = 0x0000_0009_0003` — **the definitive value fixed by the freeze.** The
+form is three 16-bit fields, `0x{reserved}_{minor}_{patch}`: here minor = 9, patch = 3,
+matching this document's version. The patch level tracks spec revisions, and v0.9.3 changed
+rules that decide state: the grease-stanza policy of §3.6 (which blobs are `unusable`), §14.7
+(which `FailReason` a transaction receives, and so `results_root`), and the discriminants
+fixed in §13.1.
+
+**Where it is stamped (frozen).** `consensus_version` and `lock_digest` are the first two
+fields of the `global` singleton (§5.4), written at genesis and immutable thereafter. Being
+inside `global` puts them inside every `state_root`, which is what makes them *checkable*: a
+verifier holding only the exported blocks recomputes the genesis root and diverges
+immediately if it implements different rules. A node refuses to open a chain whose stamped
+identity is not its own, rather than extending it. `/params` reports the identity **read from
+the chain state**, not from the binary's constants, so a mismatched build cannot misreport
+the rules the chain runs under.
+
+**The `lock_digest` (frozen).** The annex of pinned versions is stamped as a digest of the
+**list**, not of the document — a corrected typo in the prose must not change what a chain
+committed to, while a changed version number must:
+
+```
+lock_digest = blake3( "popcorn-consensus-lock-v1"
+                      || LE32(count)
+                      || for each (name, version) in the frozen order of the annex:
+                           LE32(len(name)) || name || LE32(len(version)) || version )
+```
+
+Length prefixes throughout, so no pair of a name and a version can be re-cut into a different
+pair with the same digest. At the pinned versions of CONSENSUS-LOCK.md this is
+`5be582738ffa6616bcb899eab0bbdf93e08dd05e26f9cafe28ad7e8717d521cd`, and the genesis state root
+it produces is `cc4c02f6d738d909a64849380ac604d8057522c808dec3ce7882252e1b4151b4`.
 
 | Component | Normative definition |
 |---|---|
@@ -1324,7 +1360,7 @@ tracks spec revisions; the freeze fixes the definitive value.
 flags, commit for vendored code) of each of `borsh` + `borsh-derive`, `ed25519-dalek`,
 `primitive-types`, `blake3`, `sha2`, `age`, `tlock`, `tlock_age`, `drand_core` is recorded.
 "Pinned version" without a number contradicts this very section: the numbers live in the
-annex, stamped into genesis next to `CONSENSUS_VERSION`.
+annex, stamped into genesis next to `CONSENSUS_VERSION` as the `lock_digest` defined above.
 
 ### 13.1 Normative discriminants
 

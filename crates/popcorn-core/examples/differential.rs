@@ -697,6 +697,8 @@ fn state_json(state: &State) -> Value {
             "expiry_round": htlc.expiry_round,
         })).collect::<Vec<_>>(),
         "global": {
+            "consensus_version": state.global.consensus_version,
+            "lock_digest": hex(&state.global.lock_digest),
             "height": state.global.height,
             "total_staked": state.global.total_staked.to_string(),
             "acc_per_stake": state.global.acc_per_stake.to_string(),

@@ -4,6 +4,38 @@ Version history of the POPCORN protocol specification ([`SPEC.md`](SPEC.md)).
 All entries are **pre-genesis**: until genesis is produced, every change is free.
 After genesis, anything listed as consensus-breaking in §13 is effectively a new chain.
 
+## v0.9.3 — consensus identity stamped into genesis
+
+- **`CONSENSUS_VERSION = 0x0000_0009_0003`**, the definitive value fixed by the freeze. It was
+  `0x0000_0009_0002` — encoding 0.9.2 — while the document had been v0.9.3 for some time, and
+  §13 ties the patch level to spec revisions. v0.9.3 changed rules that decide state: the
+  grease-stanza policy of §3.6, §14.7, and the discriminants of §13.1.
+- **It is now actually stamped.** §13 said "stamped into genesis and `/params`" and
+  CONSENSUS-LOCK.md repeated it; neither was true. The version lived only in a compile-time
+  constant: not in `GenesisConfig`, not in the stored metadata, not in any header, not in the
+  state root. A node rebuilt with a different constant served a different `/params` over the
+  same chain with nothing to notice, and a third party replaying from `/chain/export` had no
+  way to check that the rules being applied were the rules the chain was created under. The
+  one thing the identifier exists to pin was the one thing it was not bound to.
+- `consensus_version` and `lock_digest` are now the first two fields of the `global` singleton
+  (§5.4), written at genesis and never touched again. Being inside `global` puts them inside
+  **every state root**: a verifier implementing different rules diverges at block 0 holding
+  nothing but exported blocks. A node refuses to open a chain whose stamped identity is not
+  its own instead of extending it, and `/params` reports the identity read from the chain
+  state rather than from the binary.
+- **The annex is stamped as a digest of the list**, not of the document
+  (`5be582738ffa6616bcb899eab0bbdf93e08dd05e26f9cafe28ad7e8717d521cd`): a corrected typo in
+  the prose must not change what a chain committed to, while a changed version number must.
+  Length-prefixed so no name/version pair can be re-cut into another with the same digest.
+  `ci/check-lock.py` fails the build when the stamped list stops matching what Cargo resolves.
+- That gate found something on its first run: `sha2` resolves to **two** versions. Every
+  cryptographic user is on 0.10.9; `age` pulls 0.11.0 through `rust-embed`, for localized
+  error strings. Harmless, and now written down in the annex rather than tidied away — the
+  check verifies the version on every *consensus* edge, not the absence of duplicates.
+- The Python reference executor computes the same digest from the specification and agrees on
+  every state root across the 400 differential scenarios; the end-to-end vector was
+  regenerated against a real drand round.
+
 ## v0.9.3 — explorer and wallet
 
 - **The node now serves its own front end** (`web/`, compiled into the binary; `--no-web`

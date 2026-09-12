@@ -247,3 +247,57 @@ fn zero_balances_are_removed_from_state() {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
+
+/// The consensus identity of §13 is inside the state root, and moving it moves the root.
+///
+/// This is the property the whole stamping design rests on: if a changed version did not
+/// change the root, a chain created under one set of rules could be replayed under another
+/// without anything noticing, which is exactly the failure the version exists to prevent.
+#[test]
+fn the_consensus_identity_is_committed_to_by_every_state_root() {
+    let honest = State::new();
+    assert_eq!(
+        honest.global.consensus_version,
+        popcorn_core::constants::CONSENSUS_VERSION,
+        "a fresh state carries this binary's version, not zero"
+    );
+    assert_eq!(
+        honest.global.lock_digest,
+        popcorn_core::crypto::consensus_lock_digest()
+    );
+
+    let mut other_version = State::new();
+    other_version.global.consensus_version = popcorn_core::constants::CONSENSUS_VERSION + 1;
+    assert_ne!(
+        honest.state_root(),
+        other_version.state_root(),
+        "a different consensus version must produce a different genesis root"
+    );
+
+    let mut other_lock = State::new();
+    other_lock.global.lock_digest = [0xaa; 32];
+    assert_ne!(
+        honest.state_root(),
+        other_lock.state_root(),
+        "a different pinned-dependency digest must produce a different genesis root"
+    );
+}
+
+/// The digest is over the list, and every part of every entry is inside it.
+#[test]
+fn the_lock_digest_covers_each_pinned_version() {
+    use popcorn_core::constants::CONSENSUS_LOCK;
+
+    let digest = popcorn_core::crypto::consensus_lock_digest();
+    assert_eq!(CONSENSUS_LOCK.len(), 12);
+
+    // Length-prefixed encoding, so no re-cutting of a name and a version can collide: the
+    // pair ("age", "0.11.5") must not hash like ("age0", ".11.5").
+    let mut recut = String::new();
+    for (name, version) in CONSENSUS_LOCK {
+        recut.push_str(name);
+        recut.push_str(version);
+    }
+    let flat = popcorn_core::crypto::blake3_hash(recut.as_bytes());
+    assert_ne!(digest, flat, "the digest is not a bare concatenation");
+}

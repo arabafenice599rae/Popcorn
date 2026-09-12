@@ -9,7 +9,7 @@
 
 [Documentation](docs/README.md) · [Specification](SPEC.md) · [Consensus lock](CONSENSUS-LOCK.md) · [Changelog](CHANGELOG.md)
 
-`v0.9.3` · pre-genesis · `CONSENSUS_VERSION = 0x0000_0009_0002`
+`v0.9.3` · pre-genesis · `CONSENSUS_VERSION = 0x0000_0009_0003`
 
 </div>
 

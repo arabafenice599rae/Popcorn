@@ -9,7 +9,15 @@
 > "*Pinned version* without a number contradicts this very section: the numbers live in the
 > annex, stamped into genesis next to `CONSENSUS_VERSION`." — SPEC.md §13
 
-`CONSENSUS_VERSION = 0x0000_0009_0002`
+`CONSENSUS_VERSION = 0x0000_0009_0003`
+`lock_digest = 5be582738ffa6616bcb899eab0bbdf93e08dd05e26f9cafe28ad7e8717d521cd`
+
+Both are written into the `global` singleton at genesis and are therefore inside **every**
+state root (§5.4, §13). The digest is over the **list below**, not over this document: a
+corrected typo in the prose must not change what a chain committed to, while a changed version
+number must. `ci/check-lock.py` fails the build if the list stops matching what Cargo actually
+resolves — a stamped list that has drifted is worse than no list at all, because it looks like
+a guarantee.
 
 This file records the **exact** version of every dependency whose behaviour can influence a
 state root. Upgrading any of them is a declared consensus change under §13.3 — never a side
@@ -40,6 +48,14 @@ Pinned with `=` in the workspace manifest, so resolution cannot drift.
 | `curve25519-dalek` | 4.1.3 | — | The curve arithmetic underneath it (audited 2023) |
 | `blake3` | 1.8.7 | `std` | All hashing, and the XOF that drives the shuffle (§3.7) |
 | `sha2` | 0.10.9 | — | HTLC hashlocks only — the single non-blake3 point in the protocol (§7.6) |
+
+> **A second `sha2` is in the tree, and it is not this one.** `age` pulls `rust-embed` for its
+> localized error strings, and that pulls `sha2 0.11.0`. Every cryptographic user —
+> `popcorn-core`, `ed25519-dalek`, `tlock`, `age` itself, `age-core`, `drand_core`, `scrypt` —
+> resolves 0.10.9. This is recorded rather than tidied away because "there is one copy of
+> `sha2`" would be false, and the gate that checks this annex has to be checking something
+> true: `ci/check-lock.py` verifies the version on every *consensus* edge, not the absence of
+> duplicates elsewhere.
 | `primitive-types` | 0.14.0 | — | `U256` intermediates in the AMM and the staking accumulator (§6, §8) |
 
 ## Timelock stack

@@ -95,6 +95,41 @@ def signing_hash(payload: dict) -> bytes:
 # State (§5.4)
 # ---------------------------------------------------------------------------------------
 
+# Consensus identity (§13), written into `global` at genesis and never touched again.
+CONSENSUS_VERSION = 0x0000_0009_0003
+
+LOCK_DOMAIN = b"popcorn-consensus-lock-v1"
+
+# The pinned dependency list of §13, in its frozen order.
+CONSENSUS_LOCK = [
+    ("borsh", "1.8.1"),
+    ("borsh-derive", "1.8.1"),
+    ("ed25519-dalek", "2.2.0"),
+    ("curve25519-dalek", "4.1.3"),
+    ("blake3", "1.8.7"),
+    ("sha2", "0.10.9"),
+    ("primitive-types", "0.14.0"),
+    ("tlock", "0.0.10"),
+    ("tlock_age", "0.0.10"),
+    ("age", "0.11.5"),
+    ("age-core", "0.11.0"),
+    ("drand_core", "0.0.19"),
+]
+
+
+def consensus_lock_digest() -> bytes:
+    """blake3(LOCK_DOMAIN || LE32(count) || per entry: LE32|name| name LE32|ver| ver)."""
+    hasher = blake3.blake3()
+    hasher.update(LOCK_DOMAIN)
+    hasher.update(len(CONSENSUS_LOCK).to_bytes(4, "little"))
+    for name, version in CONSENSUS_LOCK:
+        hasher.update(len(name).to_bytes(4, "little"))
+        hasher.update(name.encode())
+        hasher.update(len(version).to_bytes(4, "little"))
+        hasher.update(version.encode())
+    return hasher.digest()
+
+
 def new_state() -> dict:
     return {
         "accounts": {},
@@ -102,6 +137,8 @@ def new_state() -> dict:
         "pairs": {},
         "htlcs": {},
         "global": {
+            "consensus_version": CONSENSUS_VERSION,
+            "lock_digest": consensus_lock_digest(),
             "height": 0,
             "total_staked": 0,
             "acc_per_stake": 0,

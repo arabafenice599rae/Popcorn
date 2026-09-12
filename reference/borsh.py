@@ -221,8 +221,14 @@ def encode_htlc(htlc: dict) -> bytes:
 
 
 def encode_global(state_global: dict) -> bytes:
-    """Field order is frozen (§5.4): it is hashed as written."""
-    return (u64(state_global["height"])
+    """Field order is frozen (§5.4): it is hashed as written.
+
+    The identity fields lead, as in the specification: they are written at genesis and never
+    change, so every state root commits to the rules the chain was created under.
+    """
+    return (u64(state_global["consensus_version"])
+            + fixed(state_global["lock_digest"])
+            + u64(state_global["height"])
             + u128(state_global["total_staked"])
             + u128(state_global["acc_per_stake"])
             + u128(state_global["staking_reserved"])

@@ -9,7 +9,7 @@ use borsh::BorshSerialize;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use sha2::{Digest, Sha256};
 
-use crate::constants::SIGN_DOMAIN;
+use crate::constants::{CONSENSUS_LOCK, LOCK_DOMAIN, SIGN_DOMAIN};
 
 /// BLAKE3-256 over a byte slice.
 pub fn blake3_hash(bytes: &[u8]) -> [u8; 32] {
@@ -22,6 +22,30 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hasher.finalize().into()
+}
+
+/// Digest of the pinned dependency list of §13, stamped into genesis.
+///
+/// ```text
+/// blake3( LOCK_DOMAIN
+///         || LE32(count)
+///         || for each entry, in the frozen order of CONSENSUS_LOCK:
+///              LE32(len(name)) || name || LE32(len(version)) || version )
+/// ```
+///
+/// Length prefixes throughout, so no pair of a name and a version can be re-cut into a
+/// different pair with the same digest.
+pub fn consensus_lock_digest() -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(LOCK_DOMAIN);
+    h.update(&(CONSENSUS_LOCK.len() as u32).to_le_bytes());
+    for (name, version) in CONSENSUS_LOCK {
+        h.update(&(name.len() as u32).to_le_bytes());
+        h.update(name.as_bytes());
+        h.update(&(version.len() as u32).to_le_bytes());
+        h.update(version.as_bytes());
+    }
+    *h.finalize().as_bytes()
 }
 
 /// `AccountId = blake3(verifying_key)` (§3.1).
