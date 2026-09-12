@@ -6,7 +6,7 @@
   --ink: #f4ead9;
   --ink-dim: #a99e8d;
   --ink-faint: #6f675c;
-  --bg: #0a0a0c;
+  --bg: #000000;   /* pure black, matching the logo's background exactly */
   --panel: #121216;
   --panel-2: #17171d;
   --line: #26262e;
