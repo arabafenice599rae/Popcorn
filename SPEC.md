@@ -1359,6 +1359,11 @@ it produces is `cc4c02f6d738d909a64849380ac604d8057522c808dec3ce7882252e1b4151b4
 **CONSENSUS-LOCK (genesis annex).** At freeze time, the EXACT version (crate, derive, feature
 flags, commit for vendored code) of each of `borsh` + `borsh-derive`, `ed25519-dalek`,
 `primitive-types`, `blake3`, `sha2`, `age`, `tlock`, `tlock_age`, `drand_core` is recorded.
+What a pin defends against is not the same for all of them, and the annex classifies each:
+where the behaviour belongs to the library (`borsh`, `verify_strict`, the age/tlock blob
+format) a version bump can legitimately change the bytes, so the pin guards against **semantic
+drift**; where the function is fixed by a specification (`blake3`, `sha2`) every correct
+implementation agrees, so the pin guards against **substitution and defect** instead.
 "Pinned version" without a number contradicts this very section: the numbers live in the
 annex, stamped into genesis next to `CONSENSUS_VERSION` as the `lock_digest` defined above.
 

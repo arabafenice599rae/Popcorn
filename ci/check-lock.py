@@ -8,6 +8,14 @@ The rule is per-edge rather than per-graph. A second copy of a crate elsewhere i
 not by itself a problem: `age` pulls `sha2 0.11` through `rust-embed`, for its localized error
 strings, while every cryptographic user of `sha2` resolves 0.10.9. What must hold is that no
 consensus-relevant package depends on a version other than the stamped one.
+
+What a mismatch would *mean* differs by crate, and CONSENSUS-LOCK.md says which is which.
+Where the behaviour belongs to the library — `borsh`, `ed25519-dalek`'s acceptance policy, the
+age/tlock blob format — a version bump can legitimately change the bytes, so the pin is a
+defence against semantic drift. Where the function is fixed by a specification — `blake3`,
+`sha2` — any correct implementation agrees, so the pin is a defence against substitution and
+defect instead. This check does not distinguish them: a stamped list has to be true about what
+is compiled either way.
 """
 import pathlib
 import re

@@ -48,15 +48,43 @@ Pinned with `=` in the workspace manifest, so resolution cannot drift.
 | `curve25519-dalek` | 4.1.3 | — | The curve arithmetic underneath it (audited 2023) |
 | `blake3` | 1.8.7 | `std` | All hashing, and the XOF that drives the shuffle (§3.7) |
 | `sha2` | 0.10.9 | — | HTLC hashlocks only — the single non-blake3 point in the protocol (§7.6) |
+| `primitive-types` | 0.14.0 | — | `U256` intermediates in the AMM and the staking accumulator (§6, §8) |
+
+### What a pin actually protects against
+
+Not the same thing for every entry, and the difference is worth stating because it changes
+what a version mismatch would mean.
+
+**Where the behaviour belongs to the library**, a version bump can change what is accepted or
+what bytes come out, with no bug involved — this is the class where **semantic drift** is real
+and the pin is the defence:
+
+- `borsh` and `borsh-derive`: the serialization itself, collection ordering on decode, and the
+  enum discriminants of §13.1. Every byte that enters a hash comes from here.
+- `ed25519-dalek`: `verify_strict` is a *policy*, not the RFC. Which signatures are accepted —
+  small-order points, non-canonical `s` — is this library's decision, and §3.1 freezes it.
+- `tlock`, `tlock_age`, `age`, `age-core`: the blob format and the grease behaviour §3.6 is
+  written against. Same input, different version, legitimately different bytes.
+- `drand_core`: the beacon acceptance policy of §3.3.
+
+**Where the function is fixed by a specification**, any correct implementation produces the
+same bytes, so a version change cannot silently move a state root. The pin here guards against
+**substitution and defect** — a compromised release, a miscompiled backend — not against
+drift:
+
+- `blake3` (and its XOF), `sha2`, `curve25519-dalek`, `primitive-types`.
+
+That distinction is why the `sha2` duplicate below is safe twice over, and why saying so is
+not the same as saying the check does not matter: the digests would be identical either way,
+but the stamped list must still be true about what is compiled.
 
 > **A second `sha2` is in the tree, and it is not this one.** `age` pulls `rust-embed` for its
 > localized error strings, and that pulls `sha2 0.11.0`. Every cryptographic user —
 > `popcorn-core`, `ed25519-dalek`, `tlock`, `age` itself, `age-core`, `drand_core`, `scrypt` —
 > resolves 0.10.9. This is recorded rather than tidied away because "there is one copy of
-> `sha2`" would be false, and the gate that checks this annex has to be checking something
-> true: `ci/check-lock.py` verifies the version on every *consensus* edge, not the absence of
-> duplicates elsewhere.
-| `primitive-types` | 0.14.0 | — | `U256` intermediates in the AMM and the staking accumulator (§6, §8) |
+> `sha2`" would be false, and a gate that checks this annex has to be checking something true.
+> `ci/check-lock.py` therefore asserts the version on every *consensus edge*, not the absence
+> of duplicates anywhere in the tree.
 
 ## Timelock stack
 
