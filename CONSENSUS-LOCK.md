@@ -19,6 +19,46 @@ number must. `ci/check-lock.py` fails the build if the list stops matching what 
 resolves — a stamped list that has drifted is worse than no list at all, because it looks like
 a guarantee.
 
+## The digest preimage (`POPCORN-CONSENSUS-LOCK-V1`)
+
+`lock_digest` commits to the ordered list below and nothing else, so a verifier holding only
+the exported blocks and this section can recompute it — the prose tables further down are a
+human-readable gloss, not the preimage. The list here is the authoritative one; it mirrors
+`CONSENSUS_LOCK` in `crates/popcorn-core/src/constants.rs`, and `ci/check-lock.py` fails the
+build if either drifts from the other or from `Cargo.lock`.
+
+```
+count = 12
+ 1. borsh            1.8.1
+ 2. borsh-derive     1.8.1
+ 3. ed25519-dalek    2.2.0
+ 4. curve25519-dalek 4.1.3
+ 5. blake3           1.8.7
+ 6. sha2             0.10.9
+ 7. primitive-types  0.14.0
+ 8. tlock            0.0.10
+ 9. tlock_age        0.0.10
+10. age              0.11.5
+11. age-core         0.11.0
+12. drand_core       0.0.19
+```
+
+Digest algorithm (byte-exact, length-prefixed so no `(name, version)` pair can be re-cut into
+another with the same digest):
+
+```
+lock_digest = blake3( "popcorn-consensus-lock-v1"          (25 ASCII bytes, the domain tag)
+                      || LE32(count)
+                      || for each entry, in the order above:
+                           LE32(len(name))    || name       (name in ASCII)
+                           LE32(len(version)) || version )  (version in ASCII)
+```
+
+With the list above this yields
+`5be582738ffa6616bcb899eab0bbdf93e08dd05e26f9cafe28ad7e8717d521cd`, and the empty genesis it
+produces has state root
+`cc4c02f6d738d909a64849380ac604d8057522c808dec3ce7882252e1b4151b4` (§5.4, §13).
+
 This file records the **exact** version of every dependency whose behaviour can influence a
 state root. Upgrading any of them is a declared consensus change under §13.3 — never a side
 effect of `cargo update`. Post-genesis, such an upgrade is effectively a new chain.

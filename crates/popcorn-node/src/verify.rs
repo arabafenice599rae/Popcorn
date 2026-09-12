@@ -144,6 +144,23 @@ pub fn verify_chain(config: &GenesisConfig, blocks: &[Block]) -> VerificationRep
                 ));
             }
         }
+        // The three outcomes partition the manifest (§5.1): a transaction cannot be both
+        // executed and rejected. `audit_collection` enforces the manifest-to-outcome side
+        // (it has the blobs); this is the executed/rejected disjointness, checkable here
+        // from the block alone, so the "exactly one outcome" rule is closed on both sides.
+        let executed: std::collections::BTreeSet<[u8; 32]> =
+            block.txs.iter().map(|tx| tx.tx_id()).collect();
+        if executed.len() != block.txs.len() {
+            push("a tx_id appears twice among the executed transactions".to_string());
+        }
+        for (id, _) in &block.rejected {
+            if executed.contains(id) {
+                push(format!(
+                    "transaction {} is both executed and rejected",
+                    to_hex(id)
+                ));
+            }
+        }
 
         // 6. re-execute: ordering, results and the state root are all re-derived, never
         //    trusted. This is the check the operator cannot cheat.

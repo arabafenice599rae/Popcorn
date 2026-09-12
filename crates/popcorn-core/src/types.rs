@@ -220,6 +220,10 @@ impl SignedTx {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 #[borsh(use_discriminant = true)]
 pub enum RejectReason {
+    /// Reserved, and unreachable by construction: a blob whose decrypted cleartext does not
+    /// Borsh-decode is `unusable` (§5.1), never `rejected` — no `tx_id` exists to reject. The
+    /// discriminant is kept at 0 rather than removed, because renumbering the others would
+    /// change `rejected_root` (§13.1).
     Malformed = 0,
     BadSignature = 1,
     WrongRound = 2,

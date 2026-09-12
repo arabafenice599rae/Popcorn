@@ -192,9 +192,11 @@ encryption too, not just for replay.
   This prevents cross-chain reuse of signatures produced by Solana wallets and vice versa.
 - **Verification semantics (consensus rule)**:
   `signature_valid = ed25519_dalek::<PINNED_VERSION>::verify_strict(...)` — not "any standard
-  Ed25519". RFC 8032 is under-specified and implementations diverge on borderline signatures;
-  a replaying verifier MUST accept and reject EXACTLY the same signatures as the node, so the
-  semantics are defined by the algorithm, version included.
+  Ed25519". RFC 8032 leaves certain verification-compatibility choices insufficiently
+  constraining for a consensus protocol — cofactored vs. cofactorless equations, small-order
+  and non-canonical points — so conformant implementations can disagree on borderline
+  signatures; a replaying verifier MUST accept and reject EXACTLY the same signatures as the
+  node, so the semantics are defined by the algorithm and the pinned version, not by "the RFC".
   `verify_strict` (rejects small-order points and non-canonical `s`) is the frozen choice for
   the single-signer model. It is NOT "intrinsically better" than ZIP-215 — it is ONE
   semantics, chosen and frozen. Should batch verification ever be needed, migrating to
@@ -388,9 +390,12 @@ FOUNDATION    = AccountId of the foundation key, declared in genesis
 ```
 
 **Transaction identity (frozen)**: `tx_id` covers the complete `SignedTx`, **signature
-included** — it is the hash of what is actually transmitted and executed. Since a signer can
-produce different signatures for the same payload, the same intent can yield several tx_ids;
-nonce deduplication (§5.2, step 6) guarantees at most one of them executes.
+included** — it is the hash of what is actually transmitted and executed, not of the intent
+behind it. Deduplication is therefore defined over `(signer, nonce)` (§5.2, step 6), not over
+`tx_id`: two encodings of the same intent — a re-signature, or a signature produced by a
+different but conformant signer — are distinct `tx_id`s but the same `(signer, nonce)`, and at
+most one executes. This holds independently of whether the signature scheme is deterministic;
+the protocol does not rely on Ed25519 determinism for uniqueness.
 
 **Identity invariant (frozen)**: for every account with `pubkey == Some(pk)`,
 `AccountId == blake3(pk)`. The pubkey materializes on the account's first included signed
@@ -593,6 +598,18 @@ mirror.
 ```
 unusable := manifest ∖ { blobs of the SignedTx in txs ∪ rejected }
 ```
+
+**The three sets partition the manifest (frozen).** Writing `B_txs`, `B_rejected` and
+`unusable` for the blob-hash sets behind the executed, rejected and unusable outcomes:
+
+```
+manifest = B_txs ⊎ B_rejected ⊎ unusable      (⊎ = disjoint union)
+```
+
+Disjointness is normative, not only the covering: a manifest hash resolves to **exactly one**
+outcome, never two. `unusable ⊆ manifest` alone would permit a hash counted in two categories;
+the partition forbids it. A verifier checks both directions — every manifest hash is accounted
+for, and no hash appears under two outcomes — from the manifest, the blobs and the beacon.
 
 The block's `unusable` field is **derived evidence, not consensus input**: two verifiers
 holding the manifest, the blobs (from the mirror) and the beacon MUST derive the same set by
@@ -859,6 +876,10 @@ a side are forbidden (§4.1). `u128 × u128 < U256::MAX` always: no U256 overflo
   foundation share of emission. It is the economy's **bootstrap**: the first tokens in
   circulation are its share from block 1, distributed through grants, payments or pool
   liquidity so that others can transact and stake.
+- **The FOUNDATION account is not allocated at genesis.** Genesis state is empty (§4.3). The
+  account is materialized as an ordinary implicit account (§4.2) at the moment the first
+  foundation emission is credited, which is the close of block 1 — no special genesis entry,
+  and `account_count` counts it only from that credit.
 - **The foundation may stake** its funds and earn the staker share like anyone else: a
   deliberate choice, consistent with "ordinary account" — no special rule in the code, and the
   resulting concentration is public and readable on-chain by anyone.
@@ -1397,7 +1418,7 @@ variants is consensus-breaking (`results_root` and `rejected_root` depend on dis
 
 | # | Variant | # | Variant |
 |---|---|---|---|
-| 0 | `Malformed` | 6 | `DuplicateNonce` |
+| 0 | `Malformed` *(reserved: unreachable — a blob whose decrypted cleartext does not Borsh-decode is `unusable` (§5.1), never `rejected`; no `tx_id` exists to reject)* | 6 | `DuplicateNonce` |
 | 1 | `BadSignature` | 7 | `NonceGap` |
 | 2 | `WrongRound` | 8 | `OverBudget` |
 | 3 | `UnknownAccount` | 9 | `FeeInsolvent` |

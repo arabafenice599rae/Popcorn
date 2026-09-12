@@ -301,3 +301,33 @@ fn the_lock_digest_covers_each_pinned_version() {
     let flat = popcorn_core::crypto::blake3_hash(recut.as_bytes());
     assert_ne!(digest, flat, "the digest is not a bare concatenation");
 }
+
+/// The digest and genesis root written into CONSENSUS-LOCK.md and SPEC.md must equal what the
+/// code computes. A verifier is told it can reconstruct `lock_digest` from the documented
+/// list and algorithm (§13); this fails the build if the document and the code ever disagree,
+/// which is the only thing that makes that promise real rather than decorative.
+#[test]
+fn the_documented_lock_identity_matches_the_code() {
+    let digest: String = popcorn_core::crypto::consensus_lock_digest()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let genesis_root: String = popcorn_core::genesis::genesis_state()
+        .state_root()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+
+    for path in ["/../../CONSENSUS-LOCK.md", "/../../SPEC.md"] {
+        let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR")).to_string() + path)
+            .expect("read doc");
+        assert!(
+            doc.contains(&digest),
+            "{path} does not contain the current lock digest {digest}"
+        );
+        assert!(
+            doc.contains(&genesis_root),
+            "{path} does not contain the current genesis state root {genesis_root}"
+        );
+    }
+}
