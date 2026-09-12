@@ -11,7 +11,7 @@ use popcorn_core::types::{Action, SignedTx, TxPayload};
 use popcorn_node::chain::Chain;
 use popcorn_node::mempool::{Mempool, SubmitError};
 use popcorn_node::storage::Storage;
-use popcorn_node::verify::{audit_collection, verify_chain};
+use popcorn_node::verify::{audit_collection, verify_chain_assuming_beacons};
 
 struct TempDir(PathBuf);
 
@@ -46,6 +46,13 @@ fn config(node: &SigningKey, foundation: &SigningKey) -> GenesisConfig {
         node_pubkey: node.verifying_key().to_bytes(),
         foundation_pubkey: foundation.verifying_key().to_bytes(),
     }
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
 }
 
 fn beacon_bytes(round: u64) -> Vec<u8> {
@@ -182,7 +189,7 @@ fn an_honest_chain_verifies() {
         .unwrap();
 
     let blocks = chain.storage().blocks_from(0).unwrap();
-    let report = verify_chain(&config, &blocks);
+    let report = verify_chain_assuming_beacons(&config, &blocks);
     assert!(
         report.is_clean(),
         "honest chain reported divergences: {:?}",
@@ -218,19 +225,19 @@ fn the_verifier_catches_tampering() {
             .unwrap();
     }
     let honest = chain.storage().blocks_from(0).unwrap();
-    assert!(verify_chain(&config, &honest).is_clean());
+    assert!(verify_chain_assuming_beacons(&config, &honest).is_clean());
 
     // 1. a state root that claims more supply than the formula allows
     let mut forged = honest.clone();
     forged[2].header.state_root = [0xaa; 32];
-    assert!(!verify_chain(&config, &forged).is_clean());
+    assert!(!verify_chain_assuming_beacons(&config, &forged).is_clean());
 
     // 2. a block signed by someone who is not the node
     let mut forged = honest.clone();
     let impostor = SigningKey::from_bytes(&[42u8; 32]);
     forged[2].node_signature =
         popcorn_core::crypto::sign(&impostor, &forged[2].header.block_hash());
-    let report = verify_chain(&config, &forged);
+    let report = verify_chain_assuming_beacons(&config, &forged);
     assert!(report
         .divergences
         .iter()
@@ -239,7 +246,7 @@ fn the_verifier_catches_tampering() {
     // 3. a skipped drand round
     let mut forged = honest.clone();
     forged[2].header.drand_round += 5;
-    let report = verify_chain(&config, &forged);
+    let report = verify_chain_assuming_beacons(&config, &forged);
     assert!(report
         .divergences
         .iter()
@@ -248,7 +255,7 @@ fn the_verifier_catches_tampering() {
     // 4. a broken header chain
     let mut forged = honest.clone();
     forged[2].header.prev_hash = [0u8; 32];
-    let report = verify_chain(&config, &forged);
+    let report = verify_chain_assuming_beacons(&config, &forged);
     assert!(report
         .divergences
         .iter()
@@ -257,7 +264,7 @@ fn the_verifier_catches_tampering() {
     // 5. an unusable entry that is not even in the manifest
     let mut forged = honest.clone();
     forged[2].unusable = vec![[3u8; 32]];
-    let report = verify_chain(&config, &forged);
+    let report = verify_chain_assuming_beacons(&config, &forged);
     assert!(report
         .divergences
         .iter()
@@ -266,7 +273,7 @@ fn the_verifier_catches_tampering() {
     // 6. a beacon signature swapped out from under its own commitment
     let mut forged = honest.clone();
     forged[2].drand_signature = vec![0xff; 48];
-    let report = verify_chain(&config, &forged);
+    let report = verify_chain_assuming_beacons(&config, &forged);
     assert!(report
         .divergences
         .iter()
@@ -602,7 +609,7 @@ fn a_chain_with_native_pools_verifies_and_reopens() {
 
     // Full verification, which checks the invariant at every block.
     let blocks = chain.storage().blocks_from(0).unwrap();
-    let report = verify_chain(&config, &blocks);
+    let report = verify_chain_assuming_beacons(&config, &blocks);
     assert!(
         report.is_clean(),
         "a chain with native pools failed verification: {:?}",
@@ -808,7 +815,7 @@ fn all_five_buckets_hold_together() {
 
     // And the whole chain verifies, invariant checked at every block.
     let blocks = chain.storage().blocks_from(0).unwrap();
-    let report = verify_chain(&config, &blocks);
+    let report = verify_chain_assuming_beacons(&config, &blocks);
     assert!(
         report.is_clean(),
         "verification failed: {:?}",
@@ -880,5 +887,68 @@ fn an_honest_chain_records_its_consensus_identity() {
         reopened.state().global.consensus_version,
         popcorn_core::constants::CONSENSUS_VERSION,
         "the identity survives a reopen: it is state, not a constant read at startup"
+    );
+}
+
+/// Test A (audit C-01): the verifier authenticates the beacon, not just its hash.
+///
+/// A block can carry a valid node signature and a valid `drand_sig_hash` over a beacon the
+/// operator invented — the commitment check cannot tell the difference, and inventing the
+/// beacon means choosing the shuffle seed. The strict verifier must reject it; the
+/// replay-only path, which does not authenticate beacons, must still accept it (that is the
+/// difference the split encodes).
+#[test]
+fn the_verifier_authenticates_the_beacon() {
+    use popcorn_node::verify::verify_chain;
+
+    // The real drand quicknet signature for round 1000, and genesis mapped so block 1 is
+    // exactly that round.
+    let real_1000 = unhex(
+        "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39",
+    );
+    let node_key = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation_key = SigningKey::from_bytes(&[2u8; 32]);
+    let config = config(&node_key, &foundation_key);
+    assert_eq!(config.genesis_drand_round, 1_000);
+
+    // Honest: block 1 carries the genuine round-1000 beacon → the strict verifier is clean.
+    let honest_dir = TempDir::new("beacon-honest");
+    let mut honest = Chain::initialize(&honest_dir.chain_file(), config.clone()).unwrap();
+    honest
+        .produce(real_1000.clone(), vec![], vec![], vec![], vec![], &node_key)
+        .unwrap();
+    let honest_blocks = honest.storage().blocks_from(0).unwrap();
+    assert!(
+        verify_chain(&config, &honest_blocks).is_clean(),
+        "a chain with the real beacon must verify strictly"
+    );
+
+    // Forged: block 1 carries an invented beacon. `drand_sig_hash` matches it (produce derives
+    // it), and the node signature is valid — only the BLS check can catch this.
+    let forged_dir = TempDir::new("beacon-forged");
+    let mut forged = Chain::initialize(&forged_dir.chain_file(), config.clone()).unwrap();
+    forged
+        .produce(vec![0xab; 48], vec![], vec![], vec![], vec![], &node_key)
+        .unwrap();
+    let forged_blocks = forged.storage().blocks_from(0).unwrap();
+
+    let strict = verify_chain(&config, &forged_blocks);
+    assert!(
+        !strict.is_clean(),
+        "the strict verifier must reject a forged beacon"
+    );
+    assert!(
+        strict
+            .divergences
+            .iter()
+            .any(|d| d.what.contains("does not verify")),
+        "the divergence must name the beacon: {:?}",
+        strict.divergences
+    );
+
+    // And the difference is exactly the beacon authenticity: replay-only accepts it.
+    assert!(
+        verify_chain_assuming_beacons(&config, &forged_blocks).is_clean(),
+        "replay-only verification does not authenticate beacons, so it accepts this chain"
     );
 }

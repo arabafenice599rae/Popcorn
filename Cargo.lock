@@ -1955,6 +1955,7 @@ dependencies = [
  "ed25519-dalek",
  "popcorn-core",
  "serde_json",
+ "sha2 0.10.9",
  "tlock_age",
 ]
 

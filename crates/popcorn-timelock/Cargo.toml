@@ -12,6 +12,8 @@ blake3.workspace = true
 borsh.workspace = true
 drand_core.workspace = true
 tlock_age.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 ed25519-dalek.workspace = true

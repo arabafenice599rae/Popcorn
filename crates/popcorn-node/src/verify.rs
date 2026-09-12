@@ -47,10 +47,34 @@ impl VerificationReport {
     }
 }
 
-/// Replay a chain from genesis and check every commitment it makes.
+/// Replay a chain from genesis and check every commitment it makes, including that each
+/// block's beacon is the genuine drand signature for its round (§3.3, §10). This is the
+/// production verifier: the `popcorn verify` command calls exactly this.
 ///
 /// `blocks` must start at height 0 and be contiguous.
 pub fn verify_chain(config: &GenesisConfig, blocks: &[Block]) -> VerificationReport {
+    verify_chain_inner(config, blocks, true)
+}
+
+/// Replay-only verification that does **not** authenticate the beacons.
+///
+/// It exists for tests and diagnostics that build synthetic chains — no one can produce a real
+/// BLS signature for an arbitrary round, so a replay/state test cannot also carry authentic
+/// beacons. The CLI never calls this: beacon authenticity is not optional in production, and
+/// a chain that reaches a user has been through `verify_chain`. Named so a call site cannot be
+/// mistaken for the full check.
+pub fn verify_chain_assuming_beacons(
+    config: &GenesisConfig,
+    blocks: &[Block],
+) -> VerificationReport {
+    verify_chain_inner(config, blocks, false)
+}
+
+fn verify_chain_inner(
+    config: &GenesisConfig,
+    blocks: &[Block],
+    check_beacon: bool,
+) -> VerificationReport {
     let mut state = genesis_state();
     let mut divergences = Vec::new();
     let mut previous_hash = [0u8; 32];
@@ -106,7 +130,22 @@ pub fn verify_chain(config: &GenesisConfig, blocks: &[Block]) -> VerificationRep
             push("node signature does not verify".to_string());
         }
 
-        // 3. the beacon commitment and the round mapping (§3.4)
+        // 3. the beacon: authenticity, commitment, and the round mapping (§3.3, §3.4)
+        // The signature must be the genuine drand quicknet BLS signature for this round —
+        // checked offline against the pinned chain info. Without this the only bound on
+        // `drand_signature` is `drand_sig_hash = blake3(signature)`, which an operator with
+        // the node key can satisfy for a signature of their choosing, and so pick the shuffle
+        // seed. This is the check that makes "ordering is a function of the beacon, never an
+        // operator choice" verifiable against a malicious operator, not just an honest one.
+        if check_beacon
+            && !popcorn_timelock::verify_beacon(block.header.drand_round, &block.drand_signature)
+        {
+            push(format!(
+                "drand signature for round {} does not verify against the pinned quicknet chain \
+                 info — the beacon is forged or wrong",
+                block.header.drand_round
+            ));
+        }
         if block.header.drand_sig_hash != blake3_hash(&block.drand_signature) {
             push("drand_sig_hash does not match the stored signature".to_string());
         }
