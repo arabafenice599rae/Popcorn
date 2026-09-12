@@ -18,6 +18,10 @@ popcorn node --data ./chain --node-key ./node.key --listen 127.0.0.1:8080
 ([§13.3](../SPEC.md#133-change-classification)): a node with no page still serves everything a
 verifier needs.
 
+Building your own front end instead? [`web/README.md`](../web/README.md) documents the modules
+this page is made of, and `--cors` is what lets a page hosted elsewhere read this API from a
+browser — see [API](api.md#reading-this-api-from-another-origin).
+
 ## What the page is
 
 | | |

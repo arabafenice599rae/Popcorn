@@ -19,7 +19,8 @@ def anchors(path):
             out.add(slug(m.group(2)))
     return out
 
-files = ['README.md', 'SPEC.md', 'CONSENSUS-LOCK.md', 'CHANGELOG.md'] + sorted(glob.glob('docs/*.md'))
+files = ['README.md', 'SPEC.md', 'CONSENSUS-LOCK.md', 'CHANGELOG.md', 'web/README.md'] \
+    + sorted(glob.glob('docs/*.md'))
 cache, broken, checked = {}, [], 0
 
 for f in files:

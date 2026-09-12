@@ -1102,6 +1102,14 @@ transferable while staked. Staking is the only way to take part in emission: it 
 | `WS` | `/stream` | Block push |
 | `GET` | `/`, `/app.js`, `/app.css`, `/logo.jpg` | The explorer and wallet of §3.2, compiled into the binary. Not consensus (§13.3): `--no-web` removes these four and nothing a verifier needs |
 
+Cross-origin access is **off by default** and enabled per origin with `--cors` — also not
+consensus (§13.3). It is not a security boundary and must not be described as one: this API
+has no cookies, sessions or authorization, every endpoint answers the same to everyone, and
+`POST /tx` accepts bytes from anyone by design (§5.1). The header decides whether a
+third-party *browser* page needs its own proxy; it decides nothing about who may read the
+chain or submit to it. `Access-Control-Allow-Credentials` is never sent, because there are no
+credentials.
+
 ### 9.2 Signed submission receipt + collection commitment
 
 The response to `POST /tx` is the **canonical receipt defined below**:
