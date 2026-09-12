@@ -82,7 +82,8 @@ fi
 # ---------------------------------------------------------------------------------------
 # 4. The committed vectors are present: §10 makes them gates, not conveniences
 # ---------------------------------------------------------------------------------------
-for vector in vectors/end_to_end.json vectors/differential.json vectors/signatures.json               vectors/profile/expected.json; do
+for vector in vectors/end_to_end.json vectors/differential.json vectors/signatures.json \
+              vectors/profile/expected.json vectors/halt.json; do
     if [ -f "$vector" ]; then
         pass "$(basename "$vector") is committed"
     else

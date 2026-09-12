@@ -98,6 +98,30 @@ The blob format is consensus (§3.6): node and verifiers must accept and reject 
 | `age-core` | 0.11.0 | Transitive. Source of `grease_the_joint()`, whose randomized `<random>-grease` stanza the profile tolerates |
 | `drand_core` | 0.0.19 | Beacon fetch and BLS verification against the pinned chain info |
 
+### Panic-safety of the decrypt path (operational requirement)
+
+Decryption is a total function (SPEC.md §3.6, §5.1): a profile-valid blob maps to a plaintext
+or to `unusable`, never to a halt. The pinned timelock crates do **not** honour that on their
+own. A grep of the decrypt-reachable code in `tlock 0.0.10` alone finds several assertions and
+a `panic!` — `ibe.rs:208`, `:271`, `:313` (`assert_eq!(c.u, r_g)`, the one a live flood hit)
+and `:320` — any of which a crafted-but-profile-valid ciphertext can reach. Per-site patching
+would be whack-a-mole across three crates and every future version; the guarantee is instead a
+**containment at the per-blob boundary** in `blob::decrypt`, which turns any abnormal
+termination into `TimelockError::Aborted` — an ordinary `unusable`. It covers the sites above
+and the ones not yet found.
+
+Two consequences are pinned, not incidental:
+
+- **`panic = "unwind"` in the release profile is consensus-relevant.** Under `panic = "abort"`
+  the containment is inert and a single crafted blob aborts the whole process — the remote
+  halt, restored in full. The root `Cargo.toml` sets `unwind` and says why; a future change to
+  `abort` "to shrink the binary" would reopen the hole.
+- **The pinned `tlock` is not vendored, so its assertion is not patched.** It could be — under
+  the totality rule a panic and an `Err` map to the same `unusable`, so patching `ibe.rs:313`
+  to return an error would have zero semantic effect — but that would mean vendoring the crate
+  and carrying a commit here, and the boundary containment already covers the whole class. The
+  decision is to contain, not to fork; recorded so it is a choice, not an oversight.
+
 ### drand pinning
 
 | | |

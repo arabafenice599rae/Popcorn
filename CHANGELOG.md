@@ -4,6 +4,49 @@ Version history of the POPCORN protocol specification ([`SPEC.md`](SPEC.md)).
 All entries are **pre-genesis**: until genesis is produced, every change is free.
 After genesis, anything listed as consensus-breaking in §13 is effectively a new chain.
 
+## v0.9.3 — decryption is total (a remote halt, closed)
+
+A prolonged hostile-load run against a live node found a critical defect: a single crafted
+blob could permanently stop block production. A blob that passes POPCORN-TLOCK-AGE-V1 but
+carries an inconsistent IBE point drives the pinned `tlock 0.0.10` to an `assert_eq!`
+(`ibe.rs:313`) — a panic, not an error. The panic unwound a decryption worker, the producer's
+`handle.join().expect(...)` re-panicked the producer task, and the node stopped producing
+blocks while its API kept answering. Collection is blind (§5.1), so the trigger is input, not
+volume: anyone who can POST a blob — everyone, by design, with no fee and no signature — could
+halt the chain, and worse in release, where `panic = "abort"` turns the same input into a whole
+-process abort.
+
+- **§3.6 and §5.1 now state decryption as a total function.** For a profile-valid blob,
+  decryption maps `(blob, beacon)` to a valid plaintext or to `unusable`, with no third
+  outcome — a failed unwrap, a failed AEAD, an undecodable plaintext, *or an abnormal
+  termination of the underlying primitive* all being `unusable`, identically for node and
+  verifier. The rule is written as totality, not mechanism: it binds a Python verifier (whose
+  primitive raises an exception) exactly as it binds Rust (whose primitive asserts). The
+  accepted set does not move — for such a blob the outcome was previously *undefined* (a dead
+  node), not a different verdict; the change fills a hole in the function.
+- **The node realizes that totality by containing each blob's decryption** at the per-blob
+  boundary in `blob::decrypt`; an abnormal termination becomes `TimelockError::Aborted`, an
+  ordinary `unusable`. Node and verifier share this one function, so they still agree. The
+  containment covers the whole class, not just `ibe.rs:313`: a grep of the decrypt-reachable
+  code found sibling assertions and a `panic!` (`ibe.rs:208`, `:271`, `:313`, `:320`), any of
+  which another crafted input could reach.
+- **`panic = "unwind"` is pinned in the release profile and recorded in CONSENSUS-LOCK.md as
+  consensus-relevant.** Under `abort` the containment is inert and the remote halt returns in
+  full; a future change to `abort` "to shrink the binary" would reopen it. The pinned `tlock`
+  is not vendored, so its assertion is left in place — under the totality rule a panic and an
+  `Err` map to the same `unusable`, so patching it would have zero semantic effect and would
+  only mean carrying a fork; the decision to contain rather than fork is recorded.
+- **A committed vector (`vectors/halt.json`) and a regression test** freeze one such blob: it
+  passes the profile, decrypts to `Aborted`/`unusable`, and does not crash the test. The
+  cross-language gate gained a fourth section — all three implementations must profile-accept
+  it, decrypt it without crashing, and produce no plaintext; a crash there would be an
+  implementation halt, a successful decrypt there would be an unsound profile.
+- **A new harness, `popcorn-node/examples/hostile_load.rs`**, drives sustained adversarial
+  load with an honest canary underneath and checks survival, liveness, accountability and
+  conservation against a running node. It is what found this. (An early canary bug — a
+  zero-amount transfer, invalid by the `amount > 0` rule — was corrected to a self-transfer of
+  one; the corrected run is what hit the real defect.)
+
 ## v0.9.3 — consensus identity stamped into genesis
 
 - **`CONSENSUS_VERSION = 0x0000_0009_0003`**, the definitive value fixed by the freeze. It was

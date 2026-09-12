@@ -130,6 +130,37 @@ else
     fail "end-to-end vector" "vectors/end_to_end.json is missing"
 fi
 
+# ---------------------------------------------------------------------------------------
+echo
+echo "4. the halt vector — profile-valid, but decryption must contain it, not crash (§3.6)"
+# ---------------------------------------------------------------------------------------
+# A crafted-but-profile-valid ciphertext that drives the timelock primitive to terminate
+# abnormally. Decryption is a total function: every implementation must accept it by profile,
+# yield no plaintext, and — the point — keep running. If any one crashed here, an attacker
+# could halt that implementation; if any one *decrypted* it, the profile would be unsound.
+if [ -f vectors/halt.json ]; then
+    halt_blob=$(python3 -c "import json;print(json.load(open('vectors/halt.json'))['blob'])")
+    for implementation in rust go js; do
+        verdict=$(run "$implementation" profile "$halt_blob" "$ROUND" "$CHAIN" 2>/dev/null | tail -1)
+        if [ "$verdict" != "OK" ]; then
+            fail "$implementation profile(halt)" "expected OK (it is profile-valid), got $verdict"
+        fi
+        # `decrypt` must return control to the harness (a crash would abort this subshell and
+        # print nothing) and must not reproduce a plaintext.
+        got=$(run "$implementation" decrypt "$halt_blob" "$SIG" 2>/dev/null | tail -1)
+        rc=$?
+        if [ "$got" = "$PLAINTEXT" ]; then
+            fail "$implementation decrypt(halt)" "decrypted a halt vector — profile is unsound"
+        elif [ "$rc" -ge 128 ]; then
+            fail "$implementation decrypt(halt)" "crashed (signal exit $rc) — not contained"
+        else
+            note "$implementation halt vector" "profile OK, decrypt contained (no plaintext, no crash)"
+        fi
+    done
+else
+    fail "halt vector" "vectors/halt.json is missing"
+fi
+
 echo
 if [ "$failures" -eq 0 ]; then
     echo "cross-language gate: PASS"

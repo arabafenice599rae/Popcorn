@@ -298,6 +298,20 @@ Any deviation ⇒ `unusable`. The **acceptance policy is normative**: node and v
 accept and reject the same bytes — the cross-language test vectors cover rejection cases, not
 just round-trips.
 
+**Decryption is a total function (frozen).** For a blob that passes this profile, decryption
+maps `(blob, beacon)` to exactly one of two outcomes: a valid plaintext, or `unusable`. There
+is no third outcome. Any result that is not a valid plaintext — a failed timelock unwrap, a
+failed AEAD, a plaintext that does not decode to a transaction, **or an abnormal termination
+of the underlying timelock primitive on a crafted ciphertext** — is `unusable`, identically
+for the node and for every verifier. This is a property of the specification, not of any one
+language's error handling: an implementation whose timelock library signals such a case by an
+exception, an error value, or an aborting assertion MUST still classify the blob `unusable`
+and continue, never halt. The outcome is a deterministic function of the blob and the beacon,
+so all implementations agree on it. (This closes a real defect: the pinned `tlock` reaches an
+assertion on certain crafted-but-profile-valid ciphertexts; a decryptor that let that
+terminate the batch would stop producing blocks on a single hostile blob. The obligation is
+totality; realizing it — containment at the per-blob boundary in Rust — is implementation.)
+
 **The grease stanza (amended v0.9.3-en).** Earlier text said "exactly one recipient stanza",
 full stop. That rule is **unimplementable** with the pinned stack: the `age` implementation
 appends a randomized stanza tagged `<random>-grease` to every header it writes, by design, to
@@ -588,6 +602,13 @@ inconsistent with that derivation is an incorrect block.
 A Borsh decode failure of the decrypted `SignedTx` counts as `unusable` (the blob hash),
 never as `rejected` — a `rejected` entry commits to a `tx_id`, which for an undecodable blob
 does not exist.
+
+Decryption itself is total (§3.6): a manifested blob that the timelock cannot turn into a
+valid plaintext is `unusable` **whatever form the failure takes**, including an abnormal
+termination of the timelock primitive. A producer MUST contain such a termination and
+continue — a single manifested blob can never stop the batch, or block production would be at
+the mercy of anyone who can submit one. The derivation above is unchanged: the blob is in the
+manifest, resolves to no transaction, and is therefore in `unusable`, checkable by anyone.
 
 `collection_root` commits to the **set of distinct blobs received, NOT the multiplicity of
 submissions**: the same blob submitted ten times (ten receipts) is one manifest entry — a

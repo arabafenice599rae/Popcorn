@@ -28,6 +28,10 @@ pub enum TimelockError {
     Encrypt(String),
     /// Decryption failed with a valid-looking header. Also resolves to `unusable`.
     Decrypt(String),
+    /// The timelock primitive terminated abnormally on a crafted-but-profile-valid ciphertext
+    /// (a reachable assertion in the pinned `tlock`), contained at the per-blob boundary.
+    /// Resolves to `unusable` exactly like `Decrypt`: the totality of §3.6/§5.1 realized.
+    Aborted,
     /// A remote serves a different drand chain than the one pinned at genesis.
     WrongChain,
     WrongScheme(String),
