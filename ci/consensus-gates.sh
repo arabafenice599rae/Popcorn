@@ -68,9 +68,22 @@ for crate in borsh ed25519-dalek primitive-types blake3 sha2 tlock tlock_age dra
 done
 
 # ---------------------------------------------------------------------------------------
+# 3b. The stamped dependency list matches what Cargo resolves
+# ---------------------------------------------------------------------------------------
+# CONSENSUS_LOCK is hashed into every state root (SPEC.md §13), so a list that has drifted
+# from the real graph is a commitment to versions nobody is running.
+if lock_report=$(python3 ci/check-lock.py 2>&1); then
+    pass "$lock_report"
+else
+    fail "CONSENSUS_LOCK does not match Cargo.lock:"
+    echo "$lock_report" >&2
+fi
+
+# ---------------------------------------------------------------------------------------
 # 4. The committed vectors are present: §10 makes them gates, not conveniences
 # ---------------------------------------------------------------------------------------
-for vector in vectors/end_to_end.json vectors/differential.json vectors/signatures.json               vectors/profile/expected.json; do
+for vector in vectors/end_to_end.json vectors/differential.json vectors/signatures.json \
+              vectors/profile/expected.json vectors/halt.json; do
     if [ -f "$vector" ]; then
         pass "$(basename "$vector") is committed"
     else

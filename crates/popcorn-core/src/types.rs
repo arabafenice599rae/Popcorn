@@ -68,8 +68,18 @@ pub struct Htlc {
 }
 
 /// Global singleton state. Field order is frozen: it is hashed as-is (§5.4).
-#[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+///
+/// The first two fields are the chain's identity, written at genesis and never touched
+/// again. They are here rather than in the header or in a config file for one reason: this
+/// struct is inside `state_root`, so the rules a chain was created under are committed to by
+/// every block, and a replay under different rules diverges at block 0 instead of quietly
+/// producing a different history. A verifier holding only the exported blocks can check it.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Global {
+    /// `CONSENSUS_VERSION` as of genesis (§13). Immutable for the life of the chain.
+    pub consensus_version: u64,
+    /// Digest of the pinned dependency list of §13. Immutable for the life of the chain.
+    pub lock_digest: [u8; 32],
     pub height: u64,
     pub total_staked: Amount,
     pub acc_per_stake: u128,
@@ -78,6 +88,28 @@ pub struct Global {
     pub native_emitted: Amount,
     pub native_burned: Amount,
     pub account_count: u64,
+}
+
+/// A fresh `Global` carries this binary's identity, not zeros.
+///
+/// `Default` is what builds the genesis state, so zeroing these two would stamp an empty
+/// identity into the chain and make the check meaningless. Deserializing a stored state
+/// never goes through here, so an existing chain keeps whatever it was stamped with — which
+/// is exactly how a mismatched binary gets caught.
+impl Default for Global {
+    fn default() -> Self {
+        Self {
+            consensus_version: crate::constants::CONSENSUS_VERSION,
+            lock_digest: crate::crypto::consensus_lock_digest(),
+            height: 0,
+            total_staked: 0,
+            acc_per_stake: 0,
+            staking_reserved: 0,
+            native_emitted: 0,
+            native_burned: 0,
+            account_count: 0,
+        }
+    }
 }
 
 /// The action a transaction performs. Discriminant order is normative (§13.1).

@@ -73,7 +73,7 @@ Every gate the specification makes a precondition for genesis, and how to run it
 | **Browser path** | the [page the node serves](web.md) encodes, signs and encrypts all fourteen action kinds exactly as the node reads them | `./web/test/browser-path.sh` |
 | **End-to-end vector** | a real drand round through to `state_root` and a receipt, replayed offline | `cargo test -p popcorn-timelock --test vectors` |
 | **Availability** | what a flood actually costs | `cargo run --release -p popcorn-timelock --example dos_benchmark -- 10000` |
-| **Structural** | no unordered collections near a commitment, exact `=` pinning, the naming rule | `./ci/consensus-gates.sh` |
+| **Structural** | no unordered collections near a commitment, exact `=` pinning, the naming rule, and the stamped dependency list against `Cargo.lock` | `./ci/consensus-gates.sh` |
 
 ## Checking yourself against POPCORN
 

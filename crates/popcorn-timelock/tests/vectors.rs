@@ -162,3 +162,59 @@ fn a_wrong_round_beacon_does_not_open_the_blob() {
     };
     assert!(blob::decrypt(&blob_bytes, &chain_hash, &forged).is_err());
 }
+
+/// A profile-valid blob whose decryption terminates abnormally in the pinned tlock is a
+/// defined `unusable`, not a crash (SPEC.md §3.6, §5.1). Before the containment in
+/// `blob::decrypt` this input halted a node's block production; this replays the committed
+/// vector and asserts the total-function outcome, without the test process dying.
+#[test]
+fn an_abnormal_termination_is_contained_as_unusable() {
+    use popcorn_timelock::{blob, Beacon, TimelockError};
+
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vectors/halt.json");
+    let raw = std::fs::read_to_string(path).expect("vectors/halt.json");
+    let get = |key: &str| -> String {
+        let needle = format!("\"{key}\": \"");
+        let start = raw.find(&needle).expect("field") + needle.len();
+        raw[start..start + raw[start..].find('"').unwrap()].to_string()
+    };
+    let unhex = |t: &str| -> Vec<u8> {
+        (0..t.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&t[i..i + 2], 16).unwrap())
+            .collect()
+    };
+
+    let chain: [u8; 32] = unhex(&get("chain_hash")).try_into().unwrap();
+    let round: u64 = raw[raw.find("\"round\": ").unwrap() + 9..]
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let beacon = Beacon {
+        round,
+        signature: unhex(&get("beacon_signature")),
+    };
+    let bytes = unhex(&get("blob"));
+
+    // The profile accepts it — this is not a malformed blob, it is a crafted one.
+    assert!(
+        popcorn_timelock::profile::validate(&bytes, round, &chain).is_ok(),
+        "the halt vector must pass the profile; that is what makes it dangerous"
+    );
+
+    // And decryption returns — it does not panic, and the outcome is the contained one.
+    match blob::decrypt(&bytes, &chain, &beacon) {
+        Err(TimelockError::Aborted) => {}
+        other => panic!("expected Aborted (unusable), got {other:?}"),
+    }
+
+    // The whole point: as a transaction, it is `unusable` — no tx, so no tx_id.
+    let provider = popcorn_timelock::static_provider::StaticTimelock::new(chain, Vec::new(), 0, 3)
+        .with_beacon(beacon.clone());
+    assert!(
+        popcorn_timelock::decrypt_transaction(&provider, &bytes, &beacon).is_none(),
+        "a contained abnormal termination yields no transaction"
+    );
+}

@@ -815,3 +815,70 @@ fn all_five_buckets_hold_together() {
         report.divergences
     );
 }
+
+/// A chain created under different consensus rules is refused, not extended.
+///
+/// The binary cannot fake being a different version of itself, so the test builds the chain
+/// the other way round: a genesis whose stamped identity is not this binary's. Opening it
+/// must fail — continuing would mean producing blocks nobody replaying under the stamped
+/// rules could reproduce, and leaving the discovery to whoever verifies later.
+#[test]
+fn a_chain_stamped_with_foreign_rules_is_refused() {
+    use popcorn_core::genesis::{genesis_block, genesis_state};
+    use popcorn_node::storage::StorageError;
+
+    let dir = TempDir::new("foreign");
+    let node = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation = SigningKey::from_bytes(&[2u8; 32]);
+
+    // Genesis as some other implementation would write it: same everything, different rules.
+    let mut state = genesis_state();
+    state.global.consensus_version = popcorn_core::constants::CONSENSUS_VERSION + 1;
+    let block = genesis_block(&state, [0u8; 64]);
+
+    let storage = Storage::open(&dir.chain_file()).unwrap();
+    storage
+        .initialize(&config(&node, &foundation), &block)
+        .unwrap();
+    drop(storage);
+
+    // The stored metadata says this binary's version — `initialize` writes it from the
+    // constants — so what catches this is the commitment: block 0's state root is not the
+    // one this binary computes for an empty chain.
+    match Chain::open(&dir.chain_file()) {
+        Err(StorageError::Database(message)) => {
+            assert!(
+                message.contains("different rules"),
+                "unexpected message: {message}"
+            );
+        }
+        Err(other) => panic!("wrong error: {other}"),
+        Ok(_) => panic!("a chain stamped with foreign rules was opened"),
+    }
+}
+
+/// An honest chain records its identity and opens cleanly.
+#[test]
+fn an_honest_chain_records_its_consensus_identity() {
+    let dir = TempDir::new("identity");
+    let node = SigningKey::from_bytes(&[1u8; 32]);
+    let foundation = SigningKey::from_bytes(&[2u8; 32]);
+
+    let chain = Chain::initialize(&dir.chain_file(), config(&node, &foundation)).unwrap();
+    assert_eq!(
+        chain.state().global.consensus_version,
+        popcorn_core::constants::CONSENSUS_VERSION
+    );
+    assert_eq!(
+        chain.state().global.lock_digest,
+        popcorn_core::crypto::consensus_lock_digest()
+    );
+    drop(chain);
+
+    let reopened = Chain::open(&dir.chain_file()).unwrap();
+    assert_eq!(
+        reopened.state().global.consensus_version,
+        popcorn_core::constants::CONSENSUS_VERSION,
+        "the identity survives a reopen: it is state, not a constant read at startup"
+    );
+}

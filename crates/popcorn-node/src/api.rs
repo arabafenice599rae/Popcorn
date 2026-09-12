@@ -359,8 +359,14 @@ async fn export(
 async fn params(State(node): State<Arc<NodeApi>>) -> Json<Value> {
     let chain = node.chain.lock().await;
     let config = chain.config();
+    let global = &chain.state().global;
     Json(json!({
-        "consensus_version": format!("{:#018x}", constants::CONSENSUS_VERSION),
+        // Read from the chain's own state, not from this binary's constants. A node running
+        // a mismatched build cannot misreport the rules its chain was created under — and it
+        // would not have opened the chain at all (§13).
+        "consensus_version": format!("{:#018x}", global.consensus_version),
+        "consensus_lock_digest": to_hex(&global.lock_digest),
+        "binary_consensus_version": format!("{:#018x}", constants::CONSENSUS_VERSION),
         "sign_domain": String::from_utf8_lossy(constants::SIGN_DOMAIN),
         "receipt_domain": constants::RECEIPT_DOMAIN,
         "genesis_drand_round": config.genesis_drand_round,

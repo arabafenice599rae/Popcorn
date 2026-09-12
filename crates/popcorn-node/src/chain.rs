@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use ed25519_dalek::SigningKey;
-use popcorn_core::crypto::sign;
+use popcorn_core::constants::CONSENSUS_VERSION;
+use popcorn_core::crypto::{consensus_lock_digest, sign};
 use popcorn_core::execute::{execute_batch, BatchInput};
 use popcorn_core::genesis::{genesis_block, genesis_state, round_for_height, GenesisConfig};
 use popcorn_core::state::State;
@@ -44,9 +45,37 @@ impl Chain {
             .ok_or(StorageError::MissingGenesis)?;
         let head_height = storage.head_height()?;
 
+        // The identity recorded when this chain was created (§13). Checked before anything
+        // is replayed, because the error it produces can name both versions — a state-root
+        // mismatch can only say that they differ.
+        if let Some((chain_version, chain_lock)) = storage.stored_identity()? {
+            if chain_version != CONSENSUS_VERSION || chain_lock != consensus_lock_digest() {
+                return Err(StorageError::ForeignConsensus {
+                    chain_version,
+                    binary_version: CONSENSUS_VERSION,
+                    chain_lock,
+                    binary_lock: consensus_lock_digest(),
+                });
+            }
+        }
+
         let (mut state, replay_from) = match storage.latest_checkpoint(head_height)? {
             Some((height, state)) => (state, height + 1),
-            None => (genesis_state(), 1),
+            None => {
+                // Block 0 commits to the genesis state root, and §13's identity is inside it.
+                // This is the check that does not depend on the local metadata being honest:
+                // it is the same one a third party makes with nothing but exported blocks.
+                let state = genesis_state();
+                let genesis = storage.block(0)?.ok_or(StorageError::MissingBlock(0))?;
+                if genesis.header.state_root != state.state_root() {
+                    return Err(StorageError::Database(
+                        "the genesis state root is not the one this binary computes: the chain \
+                         was created under different rules"
+                            .to_string(),
+                    ));
+                }
+                (state, 1)
+            }
         };
 
         // Replay whatever the checkpoint does not cover. The blocks are the source of truth,
@@ -62,6 +91,20 @@ impl Chain {
                     "replay diverged at height {height}"
                 )));
             }
+        }
+
+        // And the identity carried by the state itself, which is what every state root
+        // commits to. A checkpoint restored from disk keeps whatever it was stamped with, so
+        // this catches a mismatch the metadata alone would not.
+        if state.global.consensus_version != CONSENSUS_VERSION
+            || state.global.lock_digest != consensus_lock_digest()
+        {
+            return Err(StorageError::ForeignConsensus {
+                chain_version: state.global.consensus_version,
+                binary_version: CONSENSUS_VERSION,
+                chain_lock: state.global.lock_digest,
+                binary_lock: consensus_lock_digest(),
+            });
         }
 
         let head = storage

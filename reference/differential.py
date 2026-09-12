@@ -62,7 +62,17 @@ def rebuild_state(pre: dict) -> dict:
             "expiry_round": htlc["expiry_round"],
         }
     g = pre["global"]
+    # Read from the vector rather than assumed, so the root is computed over what the other
+    # implementation says it committed to — then checked against what this one expects.
+    if g["consensus_version"] != ref.CONSENSUS_VERSION:
+        raise SystemExit(
+            f"consensus version mismatch: vector says {g['consensus_version']:#018x}, "
+            f"this reference implements {ref.CONSENSUS_VERSION:#018x}")
+    if unhex(g["lock_digest"]) != ref.consensus_lock_digest():
+        raise SystemExit("consensus-lock digest mismatch: the pinned dependency lists differ")
     state["global"] = {
+        "consensus_version": g["consensus_version"],
+        "lock_digest": unhex(g["lock_digest"]),
         "height": g["height"],
         "total_staked": int(g["total_staked"]),
         "acc_per_stake": int(g["acc_per_stake"]),

@@ -77,7 +77,18 @@ pub fn verify_chain(config: &GenesisConfig, blocks: &[Block]) -> VerificationRep
             // Genesis carries no beacon and no transactions; its state root is the empty
             // state, and nothing is allocated (§7.1).
             if block.header.state_root != state.state_root() {
-                push("genesis state root is not the empty state".to_string());
+                // The identity of §13 is inside this root, so this is also where a chain
+                // created under different rules announces itself. Say so: "the genesis root
+                // is wrong" sends someone looking for a bug in an empty state, when the
+                // answer is that this verifier implements a different protocol.
+                push(format!(
+                    "genesis state root is not the one this verifier computes for an empty \
+                     state — either the genesis block is wrong, or this chain was created \
+                     under different consensus rules (this verifier: {:#018x}, pinned \
+                     dependency digest {})",
+                    popcorn_core::constants::CONSENSUS_VERSION,
+                    to_hex(&popcorn_core::crypto::consensus_lock_digest())
+                ));
             }
             if !block.txs.is_empty() || !block.rejected.is_empty() {
                 push("genesis must contain no transactions".to_string());

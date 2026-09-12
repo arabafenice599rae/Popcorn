@@ -41,4 +41,9 @@ license = "MIT"
 [profile.release]
 opt-level = 3
 lto = "thin"
-panic = "abort"
+# Consensus-relevant, not an optimization knob (CONSENSUS-LOCK.md): decryption is a total
+# function (SPEC.md §3.6, §5.1), and the node realizes that totality by containing an abnormal
+# termination of the timelock primitive at the per-blob boundary with `catch_unwind`. Under
+# `panic = "abort"` that containment is inert and one crafted blob aborts the whole process, so
+# the setting is `unwind` and a future change to `abort` would reopen a remote halt.
+panic = "unwind"

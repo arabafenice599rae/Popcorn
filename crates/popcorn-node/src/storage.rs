@@ -7,6 +7,8 @@
 
 use std::path::Path;
 
+use popcorn_core::constants::CONSENSUS_VERSION;
+use popcorn_core::crypto::consensus_lock_digest;
 use popcorn_core::genesis::GenesisConfig;
 use popcorn_core::state::State;
 use popcorn_core::types::Block;
@@ -34,6 +36,13 @@ pub enum StorageError {
     Encoding(String),
     MissingGenesis,
     MissingBlock(u64),
+    /// The chain was created under different consensus rules than this binary implements.
+    ForeignConsensus {
+        chain_version: u64,
+        binary_version: u64,
+        chain_lock: [u8; 32],
+        binary_lock: [u8; 32],
+    },
 }
 
 impl std::fmt::Display for StorageError {
@@ -43,6 +52,30 @@ impl std::fmt::Display for StorageError {
             StorageError::Encoding(m) => write!(f, "encoding: {m}"),
             StorageError::MissingGenesis => write!(f, "chain is not initialized"),
             StorageError::MissingBlock(h) => write!(f, "block {h} is missing"),
+            StorageError::ForeignConsensus {
+                chain_version,
+                binary_version,
+                chain_lock,
+                binary_lock,
+            } => {
+                // Refusing is the only safe answer: continuing would extend somebody else's
+                // chain under rules it never agreed to, and every block after that would be
+                // a divergence a third party has to discover for themselves.
+                write!(
+                    f,
+                    "this chain was created under different consensus rules \
+                     (chain {chain_version:#018x}, this binary {binary_version:#018x}"
+                )?;
+                if chain_lock != binary_lock {
+                    write!(
+                        f,
+                        "; pinned dependency digests also differ: chain {}, this binary {}",
+                        crate::encoding::to_hex(chain_lock),
+                        crate::encoding::to_hex(binary_lock)
+                    )?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -53,12 +86,19 @@ fn db_error<E: std::fmt::Display>(error: E) -> StorageError {
     StorageError::Database(error.to_string())
 }
 
-/// Borsh-encodable form of the genesis configuration.
+/// Borsh-encodable form of the genesis configuration, plus the consensus identity.
+///
+/// The identity is committed to in the state root (§13), which is what a third party checks
+/// with nothing but the exported blocks. This copy is not that commitment: it is here so a
+/// mismatched binary can say *which* version the chain was created under instead of only
+/// reporting a root that does not match.
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
 struct StoredGenesis {
     genesis_drand_round: u64,
     node_pubkey: [u8; 32],
     foundation_pubkey: [u8; 32],
+    consensus_version: u64,
+    lock_digest: [u8; 32],
 }
 
 pub struct Storage {
@@ -86,6 +126,8 @@ impl Storage {
             genesis_drand_round: config.genesis_drand_round,
             node_pubkey: config.node_pubkey,
             foundation_pubkey: config.foundation_pubkey,
+            consensus_version: CONSENSUS_VERSION,
+            lock_digest: consensus_lock_digest(),
         };
 
         let txn = self.db.begin_write().map_err(db_error)?;
@@ -117,7 +159,14 @@ impl Storage {
         Ok(())
     }
 
-    pub fn genesis_config(&self) -> Result<Option<GenesisConfig>, StorageError> {
+    /// The consensus identity recorded when this chain was created (§13).
+    pub fn stored_identity(&self) -> Result<Option<(u64, [u8; 32])>, StorageError> {
+        Ok(self
+            .stored_genesis()?
+            .map(|stored| (stored.consensus_version, stored.lock_digest)))
+    }
+
+    fn stored_genesis(&self) -> Result<Option<StoredGenesis>, StorageError> {
         let txn = self.db.begin_read().map_err(db_error)?;
         let Ok(meta) = txn.open_table(META) else {
             return Ok(None);
@@ -127,7 +176,11 @@ impl Storage {
         };
         let stored: StoredGenesis =
             borsh::from_slice(&raw.value()).map_err(|e| StorageError::Encoding(e.to_string()))?;
-        Ok(Some(GenesisConfig {
+        Ok(Some(stored))
+    }
+
+    pub fn genesis_config(&self) -> Result<Option<GenesisConfig>, StorageError> {
+        Ok(self.stored_genesis()?.map(|stored| GenesisConfig {
             genesis_drand_round: stored.genesis_drand_round,
             node_pubkey: stored.node_pubkey,
             foundation_pubkey: stored.foundation_pubkey,
