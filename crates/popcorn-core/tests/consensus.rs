@@ -330,4 +330,46 @@ fn the_documented_lock_identity_matches_the_code() {
             "{path} does not contain the current genesis state root {genesis_root}"
         );
     }
+
+    // CONSENSUS_VERSION is cited in more places than the digest, and this project's history is
+    // that a number written in two spots diverges the moment it can. Derive its documented
+    // form from the constant and require it verbatim where it is normative — both SPEC tables
+    // (§11 parameters and §13), the lock annex, and the README banner.
+    let version = popcorn_core::constants::CONSENSUS_VERSION;
+    let documented = format!(
+        "0x{:04x}_{:04x}_{:04x}",
+        (version >> 32) & 0xffff,
+        (version >> 16) & 0xffff,
+        version & 0xffff
+    );
+    let root = concat!(env!("CARGO_MANIFEST_DIR")).to_string();
+    let spec = std::fs::read_to_string(root.clone() + "/../../SPEC.md").unwrap();
+
+    // Section-precise: it is not enough that the value appears somewhere in SPEC.md — the two
+    // tables that must never disagree are §11 and §13.
+    let section = |from: &str, to: &str| -> String {
+        let start = spec
+            .find(from)
+            .unwrap_or_else(|| panic!("SPEC.md has no {from}"));
+        let end = spec[start + from.len()..]
+            .find(to)
+            .map(|i| start + from.len() + i)
+            .unwrap_or(spec.len());
+        spec[start..end].to_string()
+    };
+    assert!(
+        section("## 11. Protocol parameters", "## 12.").contains(&documented),
+        "§11 parameter table does not cite CONSENSUS_VERSION as {documented}"
+    );
+    assert!(
+        section("## 13. POPCORN-CONSENSUS", "## 14.").contains(&documented),
+        "§13 does not cite CONSENSUS_VERSION as {documented}"
+    );
+    for path in ["/../../CONSENSUS-LOCK.md", "/../../README.md"] {
+        let doc = std::fs::read_to_string(root.clone() + path).unwrap();
+        assert!(
+            doc.contains(&documented),
+            "{path} does not cite CONSENSUS_VERSION as {documented}"
+        );
+    }
 }
